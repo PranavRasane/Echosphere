@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import axios from 'axios'
 import './App.css'
 
-// Use your actual Render URL
+// live backend URL - replace with your actual URL
 const API_BASE_URL = 'https://echosphere-803v.onrender.com'
 
 function App() {
