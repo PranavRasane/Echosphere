@@ -2,42 +2,29 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 import random
 from datetime import datetime, timedelta
-import re
+import logging
+from ai_services import ai_service
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 CORS(app)
 
-print("🚀 Echosphere AI-Powered Backend Server Starting...")
+print("🧠 Echosphere AI-Powered Backend Server Starting...")
+print(f"✅ AI Service Available: {ai_service.is_ai_available()}")
 
 class BrandAIAnalyzer:
     def __init__(self):
-        self.sentiment_keywords = {
-            'positive': ['love', 'amazing', 'great', 'excellent', 'awesome', 'best', 'perfect', 'outstanding'],
-            'negative': ['hate', 'terrible', 'awful', 'worst', 'disappointed', 'bad', 'poor', 'horrible'],
-            'urgent': ['urgent', 'immediately', 'asap', 'emergency', 'critical', 'important']
-        }
-        
         self.brand_categories = {
             'sports': ['nike', 'adidas', 'puma', 'reebok', 'under armour'],
             'tech': ['apple', 'samsung', 'google', 'microsoft', 'xiaomi'],
             'retail': ['amazon', 'flipkart', 'myntra', 'ajio', 'nykaa'],
-            'beverage': ['starbucks', 'coca', 'pepsi', 'redbull', 'monster']
+            'beverage': ['starbucks', 'coca', 'pepsi', 'redbull', 'monster'],
+            'automotive': ['tesla', 'toyota', 'ford', 'honda', 'bmw'],
+            'fashion': ['zara', 'hm', 'forever21', 'uniqlo', 'levis']
         }
-    
-    def analyze_sentiment(self, text):
-        """AI-powered sentiment analysis using keyword matching"""
-        text_lower = text.lower()
-        
-        positive_score = sum(1 for word in self.sentiment_keywords['positive'] if word in text_lower)
-        negative_score = sum(1 for word in self.sentiment_keywords['negative'] if word in text_lower)
-        urgent_score = sum(1 for word in self.sentiment_keywords['urgent'] if word in text_lower)
-        
-        if negative_score > positive_score:
-            return 'negative', 'anger' if urgent_score > 0 else 'frustration'
-        elif positive_score > negative_score:
-            return 'positive', 'excitement' if urgent_score > 0 else 'joy'
-        else:
-            return 'neutral', 'neutral'
     
     def predict_competitors(self, brand_name):
         """AI-powered competitor prediction based on brand categories"""
@@ -48,16 +35,18 @@ class BrandAIAnalyzer:
                 # Return other brands from same category
                 return [b for b in brands if b != brand_lower][:3]
         
-        # AI fallback - generate relevant competitors
-        if 'wear' in brand_lower or 'fashion' in brand_lower:
+        # AI fallback - generate relevant competitors based on brand name
+        if any(word in brand_lower for word in ['wear', 'fashion', 'clothing', 'apparel']):
             return ['Zara', 'H&M', 'Forever 21']
-        elif 'tech' in brand_lower or 'electronic' in brand_lower:
+        elif any(word in brand_lower for word in ['tech', 'electronic', 'phone', 'mobile']):
             return ['Samsung', 'Google', 'OnePlus']
+        elif any(word in brand_lower for word in ['car', 'auto', 'vehicle', 'motor']):
+            return ['Toyota', 'Ford', 'Honda']
         else:
             return ['Market Leader', 'Emerging Brand', 'Local Competitor']
     
     def calculate_ai_risk(self, mentions):
-        """Advanced AI risk calculation"""
+        """Advanced AI risk calculation with real sentiment analysis"""
         if not mentions:
             return 0, 'low', '🟢'
         
@@ -65,8 +54,11 @@ class BrandAIAnalyzer:
         anger_count = len([m for m in mentions if m['emotion'] == 'anger'])
         total_mentions = len(mentions)
         
-        # AI risk algorithm
-        risk_score = min(100, (negative_count * 10) + (anger_count * 20))
+        # Enhanced risk algorithm considering sentiment confidence
+        total_confidence = sum(m.get('confidence', 50) for m in mentions if m['sentiment'] == 'negative')
+        avg_confidence = total_confidence / negative_count if negative_count > 0 else 0
+        
+        risk_score = min(100, (negative_count * 8) + (anger_count * 12) + (avg_confidence * 0.3))
         
         # AI pattern detection
         if risk_score > 70:
@@ -77,50 +69,56 @@ class BrandAIAnalyzer:
             return risk_score, 'low', '🟢'
 
 # Initialize AI analyzer
-ai_analyzer = BrandAIAnalyzer()
+brand_analyzer = BrandAIAnalyzer()
 
-def generate_ai_mentions(brand_name, count=25):
-    """Generate AI-enhanced realistic mentions"""
+def generate_ai_mentions(brand_name, count=20):
+    """Generate mentions with REAL AI sentiment analysis"""
     platforms = ['Twitter', 'Reddit', 'Instagram', 'News', 'Forum', 'Blog']
     
     mention_templates = [
-        f"Just tried {{brand}}'s new product and it's {{sentiment}}!",
-        f"{{brand}} customer service was {{sentiment}} today.",
-        f"Thinking about switching from {{brand}} to a competitor.",
-        f"{{brand}}'s latest campaign is getting {{sentiment}} reactions.",
-        f"Had a {{sentiment}} experience with {{brand}} support.",
-        f"{{brand}} is trending for {{sentiment}} reasons today.",
-        f"Compared {{brand}} with competitors - here are my thoughts.",
-        f"{{brand}} needs to improve their {{aspect}} according to users."
+        f"Just tried {{brand}}'s new product {{context}}",
+        f"{{brand}} customer service was {{context}} today",
+        f"Thinking about switching from {{brand}} to a competitor {{context}}",
+        f"{{brand}}'s latest campaign is getting {{context}} reactions",
+        f"Had a {{context}} experience with {{brand}} support",
+        f"{{brand}} is trending for {{context}} reasons today",
+        f"Compared {{brand}} with competitors - {{context}}",
+        f"{{brand}} needs to improve their service - {{context}}",
+        f"Love the new {{brand}} collection! {{context}}",
+        f"Disappointed with {{brand}}'s quality {{context}}"
     ]
     
-    aspects = ['quality', 'pricing', 'service', 'delivery', 'features', 'innovation']
+    contexts = [
+        "and it's amazing!", "very disappointing", "mixed feelings", 
+        "highly recommended", "would not recommend", "better than expected",
+        "worse than I thought", "exceeded expectations", "failed to deliver"
+    ]
     
     mentions = []
     for i in range(count):
         template = random.choice(mention_templates)
-        sentiment, emotion = ai_analyzer.analyze_sentiment(template)
+        context = random.choice(contexts)
         
-        mention_text = template.format(
-            brand=brand_name,
-            sentiment='amazing' if sentiment == 'positive' else 'disappointing',
-            aspect=random.choice(aspects)
-        )
+        mention_text = template.format(brand=brand_name, context=context)
         
-        # AI-enhanced mention generation
+        # REAL AI SENTIMENT ANALYSIS
+        sentiment, emotion, confidence = ai_service.analyze_sentiment_ai(mention_text)
+        
         mention = {
             'id': i + 1,
             'text': mention_text,
             'platform': random.choice(platforms),
             'sentiment': sentiment,
             'emotion': emotion,
+            'confidence': confidence,  # AI confidence score
+            'ai_analyzed': ai_service.is_ai_available(),  # Flag for real AI analysis
             'timestamp': (datetime.now() - timedelta(
                 hours=random.randint(0, 48),
                 minutes=random.randint(0, 59)
             )).isoformat(),
             'username': f"user_{random.randint(1000, 9999)}",
             'engagement': random.randint(5, 2500),
-            'verified': random.choice([True, False, False, False])  # 25% verified users
+            'verified': random.choice([True, False, False, False])
         }
         mentions.append(mention)
     
@@ -128,7 +126,12 @@ def generate_ai_mentions(brand_name, count=25):
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
-    return jsonify({"status": "Echosphere AI API is running! 🧠🌐"})
+    ai_status = "🧠 AI Active" if ai_service.is_ai_available() else "⚠️ AI Fallback Mode"
+    return jsonify({
+        "status": f"Echosphere AI API is running! {ai_status}",
+        "ai_available": ai_service.is_ai_available(),
+        "timestamp": datetime.now().isoformat()
+    })
 
 @app.route('/api/analyze', methods=['POST'])
 def analyze_brand():
@@ -136,18 +139,18 @@ def analyze_brand():
         data = request.json
         brand_name = data.get('brand', 'Unknown Brand')
         
-        print(f"🧠 AI Analyzing brand: {brand_name}")
+        logger.info(f"🧠 AI Analyzing brand: {brand_name}")
         
-        # Generate AI-powered mentions
+        # Generate mentions with REAL AI analysis
         mentions = generate_ai_mentions(brand_name)
         
-        # Calculate AI metrics
+        # Calculate metrics with real sentiment data
         total_mentions = len(mentions)
         positive_mentions = len([m for m in mentions if m['sentiment'] == 'positive'])
         negative_mentions = len([m for m in mentions if m['sentiment'] == 'negative'])
         
-        # AI risk analysis
-        risk_score, risk_level, risk_icon = ai_analyzer.calculate_ai_risk(mentions)
+        # AI risk analysis with real data
+        risk_score, risk_level, risk_icon = brand_analyzer.calculate_ai_risk(mentions)
         
         response = {
             'brand': brand_name,
@@ -160,17 +163,18 @@ def analyze_brand():
                 'risk_score': risk_score,
                 'risk_level': risk_level,
                 'risk_icon': risk_icon,
-                'ai_analysis': True,
+                'ai_analysis': ai_service.is_ai_available(),
+                'ai_confidence_avg': round(sum(m.get('confidence', 50) for m in mentions) / len(mentions), 1),
                 'analysis_timestamp': datetime.now().isoformat()
             }
         }
         
-        print(f"✅ AI Analysis complete: {response['summary']['sentiment_score']}% positive, {risk_level} risk")
+        logger.info(f"✅ AI Analysis complete: {response['summary']['sentiment_score']}% positive, {risk_level} risk")
         return jsonify(response)
     
     except Exception as e:
-        print("❌ AI Analysis error:", e)
-        return jsonify({"error": str(e)}), 500
+        logger.error(f"❌ AI Analysis error: {e}")
+        return jsonify({"error": str(e), "ai_available": ai_service.is_ai_available()}), 500
 
 @app.route('/api/competitors', methods=['POST'])
 def competitor_analysis():
@@ -178,7 +182,7 @@ def competitor_analysis():
     main_brand = data.get('brand', 'Your Brand')
     
     # AI-powered competitor prediction
-    competitors = ai_analyzer.predict_competitors(main_brand)
+    competitors = brand_analyzer.predict_competitors(main_brand)
     
     analysis = {
         'main_brand': {
@@ -225,13 +229,24 @@ def ai_insights():
                 "Brand perception"
             ]
         },
-        'confidence_score': round(random.uniform(0.7, 0.95), 2)
+        'confidence_score': round(random.uniform(0.7, 0.95), 2),
+        'ai_analysis': ai_service.is_ai_available()
     }
     
     return jsonify(insights)
 
+@app.route('/api/ai-status', methods=['GET'])
+def ai_status():
+    """Check AI service status"""
+    return jsonify({
+        'ai_available': ai_service.is_ai_available(),
+        'model_loaded': ai_service.sentiment_analyzer is not None,
+        'status': 'active' if ai_service.is_ai_available() else 'fallback'
+    })
+
 if __name__ == '__main__':
     print("🧠 AI Server: http://localhost:5000")
     print("✅ Health Check: http://localhost:5000/api/health")
-    print("🔍 AI Insights: http://localhost:5000/api/ai-insights")
+    print("🔍 AI Status: http://localhost:5000/api/ai-status")
+    print("💡 AI Insights: http://localhost:5000/api/ai-insights")
     app.run(debug=True, port=5000)
