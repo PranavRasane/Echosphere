@@ -2,6 +2,9 @@ import React, { useState } from 'react'
 import axios from 'axios'
 import './App.css'
 
+// Use your actual Render URL
+const API_BASE_URL = 'https://echosphere-803v.onrender.com'
+
 function App() {
   const [brandInput, setBrandInput] = useState('')
   const [brandData, setBrandData] = useState(null)
@@ -23,16 +26,13 @@ function App() {
       console.log('Analyzing brand:', brandInput)
 
       // Get brand analysis
-      const brandResult = await axios.post(
-        'http://localhost:5000/api/analyze',
-        {
-          brand: brandInput,
-        }
-      )
+      const brandResult = await axios.post(`${API_BASE_URL}/api/analyze`, {
+        brand: brandInput,
+      })
 
       // Get competitor analysis
       const competitorResult = await axios.post(
-        'http://localhost:5000/api/competitors',
+        `${API_BASE_URL}/api/competitors`,
         {
           brand: brandInput,
         }
@@ -43,9 +43,7 @@ function App() {
     } catch (error) {
       console.log('Request failed:', error)
       setHasError(true)
-      alert(
-        'Could not connect to the server. Make sure the backend is running on port 5000!'
-      )
+      alert('Could not connect to the analysis server. Please try again later.')
     }
 
     setIsLoading(false)
@@ -157,7 +155,7 @@ function App() {
           <div className="error-icon">⚠️</div>
           <h2>Connection Issue</h2>
           <p>Couldn't reach the analysis server.</p>
-          <p>Make sure the backend is running on port 5000.</p>
+          <p>Please check your connection and try again.</p>
           <button onClick={() => setHasError(false)} className="retry-button">
             Try Again
           </button>
@@ -174,7 +172,7 @@ function App() {
     <div className="app">
       <header className="header">
         <h1>🌐 Echosphere</h1>
-        <p>Listening to your brand's digital heartbeat</p>
+        <p>Capturing every echo of your brand across the digital sphere</p>
       </header>
 
       <section className="search-section">
@@ -401,6 +399,11 @@ function App() {
           </div>
         </section>
       )}
+
+      {/* Footer */}
+      <footer className="app-footer">
+        <p>Built with ❤️ for RapidQuest Hackathon | Echosphere 2025</p>
+      </footer>
     </div>
   )
 }
