@@ -8,6 +8,15 @@ from functools import lru_cache
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Check if torch is available
+TORCH_AVAILABLE = False
+try:
+    import torch
+    TORCH_AVAILABLE = True
+    logger.info("✅ PyTorch is available")
+except ImportError:
+    logger.warning("⚠️ PyTorch not available - using fallback mode")
+
 # Optimize for Render free tier
 os.environ['TRANSFORMERS_CACHE'] = '/tmp/transformers_cache'
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:128'

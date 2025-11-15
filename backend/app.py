@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 import random
 from datetime import datetime, timedelta
@@ -6,17 +6,63 @@ import logging
 import os
 import time
 from functools import wraps
-from ai_services import ai_service
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-app = Flask(__name__, static_folder='../frontend/build', static_url_path='/')
-CORS(app)
+app = Flask(__name__)
 
-print("🧠 Echosphere AI-Powered Backend Server Starting...")
-print(f"✅ AI Service Available: {ai_service.is_ai_available()}")
+# Enhanced CORS configuration
+CORS(app, 
+     origins=[
+         "http://localhost:3000", 
+         "https://echosphere.netlify.app",
+         "https://your-frontend.netlify.app"
+     ],
+     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+     allow_headers=["Content-Type", "Authorization"],
+     supports_credentials=True)
+
+print("🚀 Echosphere Backend Starting...")
+
+# Safe AI Service Import with Fallback
+try:
+    from ai_services import ai_service
+    print(f"✅ AI Service Available: {ai_service.is_ai_available()}")
+except ImportError as e:
+    print(f"⚠️ AI Service not available: {e}")
+    # Create fallback AI service
+    class FallbackAIService:
+        def __init__(self):
+            self.ai_available = False
+        
+        def is_ai_available(self):
+            return False
+        
+        def get_service_status(self):
+            return {"status": "fallback", "ai_available": False}
+        
+        def analyze_sentiment_ai(self, text):
+            """Fallback sentiment analysis"""
+            if not text:
+                return 'neutral', 'neutral', 50
+                
+            text_lower = text.lower()
+            positive_words = ['love', 'great', 'amazing', 'good', 'best', 'awesome']
+            negative_words = ['hate', 'terrible', 'awful', 'bad', 'worst', 'horrible']
+            
+            positive_count = sum(1 for word in positive_words if word in text_lower)
+            negative_count = sum(1 for word in negative_words if word in text_lower)
+            
+            if positive_count > negative_count:
+                return 'positive', 'happy', min(90, 50 + (positive_count * 10))
+            elif negative_count > positive_count:
+                return 'negative', 'sad', min(90, 50 + (negative_count * 10))
+            else:
+                return 'neutral', 'neutral', 50
+    
+    ai_service = FallbackAIService()
 
 # Rate limiting storage (in production, use Redis)
 request_times = {}
@@ -26,6 +72,10 @@ def rate_limit(max_requests=100, window_seconds=60):
     def decorator(f):
         @wraps(f)
         def decorated_function(*args, **kwargs):
+            # Handle OPTIONS preflight
+            if request.method == 'OPTIONS':
+                return jsonify({'status': 'ok'}), 200
+                
             client_ip = request.remote_addr
             now = time.time()
             
@@ -201,7 +251,7 @@ class BrandAIAnalyzer:
 brand_analyzer = BrandAIAnalyzer()
 
 def generate_ai_mentions(brand_name, count=20):
-    """Generate mentions with REAL AI sentiment analysis"""
+    """Generate mentions with sentiment analysis"""
     platforms = ['Twitter', 'Reddit', 'Instagram', 'News', 'Forum', 'Blog', 'YouTube', 'TikTok']
     
     mention_templates = [
@@ -236,7 +286,7 @@ def generate_ai_mentions(brand_name, count=20):
         
         mention_text = template.format(brand=brand_name, context=context)
         
-        # REAL AI SENTIMENT ANALYSIS
+        # Use AI service for sentiment analysis
         sentiment, emotion, confidence = ai_service.analyze_sentiment_ai(mention_text)
         
         # Generate more realistic timestamps
@@ -255,7 +305,7 @@ def generate_ai_mentions(brand_name, count=20):
             'username': f"user_{random.randint(1000, 9999)}",
             'engagement': random.randint(5, 5000),
             'verified': random.choice([True, False, False, False]),
-            'impact_score': round(random.uniform(0.1, 1.0), 2)  # New field for impact assessment
+            'impact_score': round(random.uniform(0.1, 1.0), 2)
         }
         mentions.append(mention)
     
@@ -264,16 +314,21 @@ def generate_ai_mentions(brand_name, count=20):
     
     return mentions
 
-# Serve React App
-@app.route('/')
-def serve_frontend():
-    return send_from_directory(app.static_folder, 'index.html')
-
-@app.route('/<path:path>')
-def serve_static_files(path):
-    return send_from_directory(app.static_folder, path)
-
 # API Routes
+@app.route('/')
+def home():
+    return jsonify({
+        "message": "Echosphere AI Backend Server",
+        "status": "running", 
+        "version": "2.0.0",
+        "endpoints": {
+            "health": "/api/health",
+            "analyze": "/api/analyze",
+            "competitors": "/api/competitors",
+            "ai_insights": "/api/ai-insights"
+        }
+    })
+
 @app.route('/api/health', methods=['GET'])
 def health_check():
     ai_status = ai_service.get_service_status()
@@ -286,8 +341,8 @@ def health_check():
         "version": "2.0.0"
     })
 
-@app.route('/api/analyze', methods=['POST'])
-@rate_limit(max_requests=50, window_seconds=60)  # 50 requests per minute
+@app.route('/api/analyze', methods=['POST', 'OPTIONS'])
+@rate_limit(max_requests=50, window_seconds=60)
 def analyze_brand():
     start_time = time.time()
     try:
@@ -305,16 +360,16 @@ def analyze_brand():
         
         logger.info(f"🧠 Analyzing brand: {brand_name}")
         
-        # Generate mentions with REAL AI analysis
+        # Generate mentions with sentiment analysis
         mentions = generate_ai_mentions(brand_name)
         
-        # Calculate metrics with real sentiment data
+        # Calculate metrics with sentiment data
         total_mentions = len(mentions)
         positive_mentions = len([m for m in mentions if m['sentiment'] == 'positive'])
         negative_mentions = len([m for m in mentions if m['sentiment'] == 'negative'])
         neutral_mentions = total_mentions - positive_mentions - negative_mentions
         
-        # AI risk analysis with real data
+        # AI risk analysis
         risk_score, risk_level, risk_icon = brand_analyzer.calculate_ai_risk(mentions)
         
         # Calculate additional metrics
@@ -348,10 +403,10 @@ def analyze_brand():
         return jsonify({
             "error": "Internal server error during analysis",
             "ai_available": ai_service.is_ai_available(),
-            "message": str(e) if os.environ.get('FLASK_ENV') == 'development' else "Please try again later"
+            "message": "Please try again later"
         }), 500
 
-@app.route('/api/competitors', methods=['POST'])
+@app.route('/api/competitors', methods=['POST', 'OPTIONS'])
 @rate_limit(max_requests=50, window_seconds=60)
 def competitor_analysis():
     try:
@@ -404,7 +459,7 @@ def competitor_analysis():
         logger.error(f"❌ Competitor analysis error: {e}")
         return jsonify({"error": "Internal server error during competitor analysis"}), 500
 
-@app.route('/api/ai-insights', methods=['POST'])
+@app.route('/api/ai-insights', methods=['POST', 'OPTIONS'])
 @rate_limit(max_requests=30, window_seconds=60)
 def ai_insights():
     """Advanced AI insights endpoint"""
@@ -466,61 +521,17 @@ def ai_status():
         status = ai_service.get_service_status()
         return jsonify({
             'ai_available': ai_service.is_ai_available(),
-            'model_loaded': ai_service.sentiment_analyzer is not None,
             'status': 'active' if ai_service.is_ai_available() else 'fallback',
             'detailed_status': status,
-            'timestamp': datetime.now().isoformat(),
-            'server_uptime': round(time.time() - app.start_time, 2) if hasattr(app, 'start_time') else 'N/A'
+            'timestamp': datetime.now().isoformat()
         })
     except Exception as e:
         logger.error(f"❌ AI status check error: {e}")
         return jsonify({
             'ai_available': False,
-            'model_loaded': False,
             'status': 'error',
             'error': str(e)
         }), 500
-
-# New endpoint for batch analysis
-@app.route('/api/batch-analyze', methods=['POST'])
-@rate_limit(max_requests=20, window_seconds=60)
-def batch_analyze():
-    """Analyze multiple brands at once"""
-    try:
-        data = request.get_json()
-        if not data or 'brands' not in data:
-            return jsonify({"error": "Brands array is required"}), 400
-            
-        brands = data.get('brands', [])
-        
-        if not isinstance(brands, list) or len(brands) > 5:
-            return jsonify({"error": "Please provide up to 5 brands"}), 400
-        
-        results = []
-        for brand in brands[:5]:  # Limit to 5 brands
-            if isinstance(brand, str) and brand.strip():
-                # Use existing analysis logic
-                mentions = generate_ai_mentions(brand.strip(), count=10)  # Fewer mentions for batch
-                risk_score, risk_level, risk_icon = brand_analyzer.calculate_ai_risk(mentions)
-                
-                results.append({
-                    'brand': brand.strip(),
-                    'mention_count': len(mentions),
-                    'risk_level': risk_level,
-                    'risk_score': risk_score,
-                    'risk_icon': risk_icon
-                })
-        
-        return jsonify({
-            'batch_id': f"batch_{int(time.time())}",
-            'analyzed_brands': len(results),
-            'results': results,
-            'timestamp': datetime.now().isoformat()
-        })
-    
-    except Exception as e:
-        logger.error(f"❌ Batch analysis error: {e}")
-        return jsonify({"error": "Internal server error during batch analysis"}), 500
 
 # Error handlers
 @app.errorhandler(404)
@@ -538,10 +549,6 @@ def ratelimit_handler(error):
 def internal_error(error):
     return jsonify({"error": "Internal server error"}), 500
 
-@app.errorhandler(405)
-def method_not_allowed(error):
-    return jsonify({"error": "Method not allowed"}), 405
-
 # Store startup time for uptime tracking
 app.start_time = time.time()
 
@@ -553,9 +560,6 @@ if __name__ == '__main__':
     print(f"🌐 Server: http://localhost:{port}")
     print(f"✅ Health Check: http://localhost:{port}/api/health")
     print(f"🔍 AI Status: http://localhost:{port}/api/ai-status")
-    print(f"💡 AI Insights: http://localhost:{port}/api/ai-insights")
-    print(f"📊 Batch Analysis: http://localhost:{port}/api/batch-analyze")
-    print(f"🐛 Debug Mode: {debug}")
-    print(f"🚀 Version: 2.0.0")
+    print(f"🤖 AI Available: {ai_service.is_ai_available()}")
     
     app.run(host='0.0.0.0', port=port, debug=debug)
