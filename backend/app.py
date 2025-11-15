@@ -1,15 +1,16 @@
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 import random
 from datetime import datetime, timedelta
 import logging
+import os
 from ai_services import ai_service
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='../frontend/build', static_url_path='/')
 CORS(app)
 
 print("🧠 Echosphere AI-Powered Backend Server Starting...")
@@ -55,8 +56,12 @@ class BrandAIAnalyzer:
         total_mentions = len(mentions)
         
         # Enhanced risk algorithm considering sentiment confidence
-        total_confidence = sum(m.get('confidence', 50) for m in mentions if m['sentiment'] == 'negative')
-        avg_confidence = total_confidence / negative_count if negative_count > 0 else 0
+        negative_mentions = [m for m in mentions if m['sentiment'] == 'negative']
+        if negative_mentions:
+            total_confidence = sum(m.get('confidence', 50) for m in negative_mentions)
+            avg_confidence = total_confidence / len(negative_mentions)
+        else:
+            avg_confidence = 0
         
         risk_score = min(100, (negative_count * 8) + (anger_count * 12) + (avg_confidence * 0.3))
         
@@ -124,20 +129,37 @@ def generate_ai_mentions(brand_name, count=20):
     
     return mentions
 
+# Serve React App
+@app.route('/')
+def serve_frontend():
+    return send_from_directory(app.static_folder, 'index.html')
+
+@app.route('/<path:path>')
+def serve_static_files(path):
+    return send_from_directory(app.static_folder, path)
+
+# API Routes
 @app.route('/api/health', methods=['GET'])
 def health_check():
     ai_status = "🧠 AI Active" if ai_service.is_ai_available() else "⚠️ AI Fallback Mode"
     return jsonify({
         "status": f"Echosphere AI API is running! {ai_status}",
         "ai_available": ai_service.is_ai_available(),
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat(),
+        "environment": os.environ.get('FLASK_ENV', 'development')
     })
 
 @app.route('/api/analyze', methods=['POST'])
 def analyze_brand():
     try:
-        data = request.json
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No JSON data provided"}), 400
+            
         brand_name = data.get('brand', 'Unknown Brand')
+        
+        if not brand_name or brand_name.strip() == '':
+            return jsonify({"error": "Brand name is required"}), 400
         
         logger.info(f"🧠 AI Analyzing brand: {brand_name}")
         
@@ -159,12 +181,12 @@ def analyze_brand():
             'summary': {
                 'positive_mentions': positive_mentions,
                 'negative_mentions': negative_mentions,
-                'sentiment_score': round((positive_mentions / total_mentions) * 100, 1),
+                'sentiment_score': round((positive_mentions / total_mentions) * 100, 1) if total_mentions > 0 else 0,
                 'risk_score': risk_score,
                 'risk_level': risk_level,
                 'risk_icon': risk_icon,
                 'ai_analysis': ai_service.is_ai_available(),
-                'ai_confidence_avg': round(sum(m.get('confidence', 50) for m in mentions) / len(mentions), 1),
+                'ai_confidence_avg': round(sum(m.get('confidence', 50) for m in mentions) / len(mentions), 1) if mentions else 0,
                 'analysis_timestamp': datetime.now().isoformat()
             }
         }
@@ -174,79 +196,134 @@ def analyze_brand():
     
     except Exception as e:
         logger.error(f"❌ AI Analysis error: {e}")
-        return jsonify({"error": str(e), "ai_available": ai_service.is_ai_available()}), 500
+        return jsonify({
+            "error": "Internal server error during analysis",
+            "ai_available": ai_service.is_ai_available(),
+            "message": str(e)
+        }), 500
 
 @app.route('/api/competitors', methods=['POST'])
 def competitor_analysis():
-    data = request.json
-    main_brand = data.get('brand', 'Your Brand')
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No JSON data provided"}), 400
+            
+        main_brand = data.get('brand', 'Your Brand')
+        
+        if not main_brand or main_brand.strip() == '':
+            return jsonify({"error": "Brand name is required"}), 400
+        
+        # AI-powered competitor prediction
+        competitors = brand_analyzer.predict_competitors(main_brand)
+        
+        analysis = {
+            'main_brand': {
+                'name': main_brand,
+                'mentions': random.randint(50, 200),
+                'sentiment_score': random.randint(60, 90),
+                'ai_categorized': True
+            },
+            'competitors': []
+        }
+        
+        for competitor in competitors:
+            analysis['competitors'].append({
+                'name': competitor.title(),
+                'mentions': random.randint(30, 150),
+                'sentiment_score': random.randint(50, 85),
+                'trend': random.choice(['rising', 'stable', 'declining'])
+            })
+        
+        return jsonify(analysis)
     
-    # AI-powered competitor prediction
-    competitors = brand_analyzer.predict_competitors(main_brand)
-    
-    analysis = {
-        'main_brand': {
-            'name': main_brand,
-            'mentions': random.randint(50, 200),
-            'sentiment_score': random.randint(60, 90),
-            'ai_categorized': True
-        },
-        'competitors': []
-    }
-    
-    for competitor in competitors:
-        analysis['competitors'].append({
-            'name': competitor.title(),
-            'mentions': random.randint(30, 150),
-            'sentiment_score': random.randint(50, 85),
-            'trend': random.choice(['rising', 'stable', 'declining'])
-        })
-    
-    return jsonify(analysis)
+    except Exception as e:
+        logger.error(f"❌ Competitor analysis error: {e}")
+        return jsonify({"error": "Internal server error during competitor analysis"}), 500
 
 @app.route('/api/ai-insights', methods=['POST'])
 def ai_insights():
     """Advanced AI insights endpoint"""
-    data = request.json
-    brand_name = data.get('brand', 'Unknown Brand')
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No JSON data provided"}), 400
+            
+        brand_name = data.get('brand', 'Unknown Brand')
+        
+        if not brand_name or brand_name.strip() == '':
+            return jsonify({"error": "Brand name is required"}), 400
+        
+        insights = {
+            'brand': brand_name,
+            'ai_insights': {
+                'market_position': random.choice(['Leader', 'Challenger', 'Niche', 'Emerging']),
+                'growth_trend': random.choice(['Rapid', 'Stable', 'Volatile', 'Declining']),
+                'customer_sentiment_trend': random.choice(['Improving', 'Stable', 'Concerning']),
+                'recommended_actions': [
+                    "Engage with negative feedback on social media",
+                    "Highlight positive customer stories",
+                    "Monitor competitor pricing strategies",
+                    "Improve response time to customer queries"
+                ],
+                'opportunity_areas': [
+                    "Product quality mentions",
+                    "Customer service experience", 
+                    "Pricing competitiveness",
+                    "Brand perception"
+                ]
+            },
+            'confidence_score': round(random.uniform(0.7, 0.95), 2),
+            'ai_analysis': ai_service.is_ai_available()
+        }
+        
+        return jsonify(insights)
     
-    insights = {
-        'brand': brand_name,
-        'ai_insights': {
-            'market_position': random.choice(['Leader', 'Challenger', 'Niche', 'Emerging']),
-            'growth_trend': random.choice(['Rapid', 'Stable', 'Volatile', 'Declining']),
-            'customer_sentiment_trend': random.choice(['Improving', 'Stable', 'Concerning']),
-            'recommended_actions': [
-                "Engage with negative feedback on social media",
-                "Highlight positive customer stories",
-                "Monitor competitor pricing strategies",
-                "Improve response time to customer queries"
-            ],
-            'opportunity_areas': [
-                "Product quality mentions",
-                "Customer service experience", 
-                "Pricing competitiveness",
-                "Brand perception"
-            ]
-        },
-        'confidence_score': round(random.uniform(0.7, 0.95), 2),
-        'ai_analysis': ai_service.is_ai_available()
-    }
-    
-    return jsonify(insights)
+    except Exception as e:
+        logger.error(f"❌ AI insights error: {e}")
+        return jsonify({"error": "Internal server error generating insights"}), 500
 
 @app.route('/api/ai-status', methods=['GET'])
 def ai_status():
     """Check AI service status"""
-    return jsonify({
-        'ai_available': ai_service.is_ai_available(),
-        'model_loaded': ai_service.sentiment_analyzer is not None,
-        'status': 'active' if ai_service.is_ai_available() else 'fallback'
-    })
+    try:
+        return jsonify({
+            'ai_available': ai_service.is_ai_available(),
+            'model_loaded': ai_service.sentiment_analyzer is not None,
+            'status': 'active' if ai_service.is_ai_available() else 'fallback',
+            'timestamp': datetime.now().isoformat()
+        })
+    except Exception as e:
+        logger.error(f"❌ AI status check error: {e}")
+        return jsonify({
+            'ai_available': False,
+            'model_loaded': False,
+            'status': 'error',
+            'error': str(e)
+        }), 500
+
+# Error handlers
+@app.errorhandler(404)
+def not_found(error):
+    return jsonify({"error": "Endpoint not found"}), 404
+
+@app.errorhandler(500)
+def internal_error(error):
+    return jsonify({"error": "Internal server error"}), 500
+
+@app.errorhandler(405)
+def method_not_allowed(error):
+    return jsonify({"error": "Method not allowed"}), 405
 
 if __name__ == '__main__':
-    print("🧠 AI Server: http://localhost:5000")
-    print("✅ Health Check: http://localhost:5000/api/health")
-    print("🔍 AI Status: http://localhost:5000/api/ai-status")
-    print("💡 AI Insights: http://localhost:5000/api/ai-insights")
-    app.run(debug=True, port=5000)
+    port = int(os.environ.get('PORT', 5000))
+    debug = os.environ.get('FLASK_ENV') == 'development'
+    
+    print("🧠 Echosphere AI Server Starting...")
+    print(f"🌐 Server: http://localhost:{port}")
+    print(f"✅ Health Check: http://localhost:{port}/api/health")
+    print(f"🔍 AI Status: http://localhost:{port}/api/ai-status")
+    print(f"💡 AI Insights: http://localhost:{port}/api/ai-insights")
+    print(f"🐛 Debug Mode: {debug}")
+    
+    app.run(host='0.0.0.0', port=port, debug=debug)

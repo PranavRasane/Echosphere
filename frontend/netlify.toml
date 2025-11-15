@@ -1,6 +1,10 @@
 [build]
   command = "npm run build"
   publish = "build"
+  environment = { NODE_VERSION = "18" }
+
+[build.environment]
+  NODE_VERSION = "18"
 
 [[redirects]]
   from = "/*"
@@ -13,3 +17,13 @@
     X-Frame-Options = "DENY"
     X-XSS-Protection = "1; mode=block"
     X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Cache-Control = "public, max-age=3600"
+
+[context.production.environment]
+  REACT_APP_API_URL = "https://echosphere-803v.onrender.com"
+  REACT_APP_VERSION = "2.0.0"
+
+[context.development.environment]
+  REACT_APP_API_URL = "http://localhost:5000"
+  REACT_APP_VERSION = "2.0.0-dev"

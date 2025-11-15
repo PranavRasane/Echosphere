@@ -1,9 +1,14 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import axios from 'axios'
 import './App.css'
 
-// live backend URL - replace with your actual URL
-const API_BASE_URL = 'https://echosphere-803v.onrender.com'
+// Use your actual Render URL
+const API_BASE_URL =
+  process.env.REACT_APP_API_URL || 'https://echosphere-803v.onrender.com'
+
+// Configure axios for better performance
+axios.defaults.timeout = 15000
+axios.defaults.headers.common['Content-Type'] = 'application/json'
 
 function App() {
   const [brandInput, setBrandInput] = useState('')
@@ -11,6 +16,20 @@ function App() {
   const [competitorData, setCompetitorData] = useState(null)
   const [isLoading, setIsLoading] = useState(false)
   const [hasError, setHasError] = useState(false)
+  const [aiStatus, setAiStatus] = useState(null)
+  const [searchHistory, setSearchHistory] = useState([])
+  const [activeTab, setActiveTab] = useState('overview')
+
+  // Check AI status - memoized for performance
+  const checkAIStatus = useCallback(async () => {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/api/ai-status`)
+      setAiStatus(response.data)
+    } catch (error) {
+      console.warn('AI status check failed:', error)
+      setAiStatus({ ai_available: false, status: 'unknown' })
+    }
+  }, [])
 
   const handleAnalyzeClick = async () => {
     if (!brandInput.trim()) {
@@ -20,34 +39,71 @@ function App() {
 
     setIsLoading(true)
     setHasError(false)
+    setBrandData(null)
     setCompetitorData(null)
 
     try {
-      console.log('Analyzing brand:', brandInput)
+      console.log('🧠 Analyzing brand:', brandInput)
 
-      // Get brand analysis
-      const brandResult = await axios.post(`${API_BASE_URL}/api/analyze`, {
-        brand: brandInput,
-      })
-
-      // Get competitor analysis
-      const competitorResult = await axios.post(
-        `${API_BASE_URL}/api/competitors`,
-        {
-          brand: brandInput,
-        }
-      )
+      // Parallel API calls for better performance
+      const [brandResult, competitorResult] = await Promise.all([
+        axios.post(`${API_BASE_URL}/api/analyze`, {
+          brand: brandInput.trim(),
+        }),
+        axios.post(`${API_BASE_URL}/api/competitors`, {
+          brand: brandInput.trim(),
+        }),
+      ])
 
       setBrandData(brandResult.data)
       setCompetitorData(competitorResult.data)
-    } catch (error) {
-      console.log('Request failed:', error)
-      setHasError(true)
-      alert('Could not connect to the analysis server. Please try again later.')
-    }
 
-    setIsLoading(false)
+      // Update search history
+      setSearchHistory((prev) => {
+        const newHistory = [
+          brandInput.trim(),
+          ...prev.filter((item) => item !== brandInput.trim()),
+        ]
+        return newHistory.slice(0, 5) // Keep only last 5 searches
+      })
+    } catch (error) {
+      console.error('❌ Analysis failed:', error)
+      setHasError(true)
+
+      // Better error messages
+      if (error.code === 'ECONNABORTED') {
+        alert('Request timeout. The server is taking too long to respond.')
+      } else if (error.response?.status >= 500) {
+        alert('Server error. Please try again later.')
+      } else {
+        alert(
+          'Unable to connect to the analysis service. Please check your connection.'
+        )
+      }
+    } finally {
+      setIsLoading(false)
+    }
   }
+
+  // Load search history from localStorage on component mount
+  useEffect(() => {
+    checkAIStatus()
+
+    const savedHistory = localStorage.getItem('echosphere_search_history')
+    if (savedHistory) {
+      setSearchHistory(JSON.parse(savedHistory))
+    }
+  }, [checkAIStatus])
+
+  // Save search history to localStorage when it changes
+  useEffect(() => {
+    if (searchHistory.length > 0) {
+      localStorage.setItem(
+        'echosphere_search_history',
+        JSON.stringify(searchHistory)
+      )
+    }
+  }, [searchHistory])
 
   const handleKeyPress = (event) => {
     if (event.key === 'Enter') {
@@ -55,20 +111,36 @@ function App() {
     }
   }
 
+  const handleBrandSelect = (brand) => {
+    setBrandInput(brand)
+  }
+
+  const handleRetry = () => {
+    setHasError(false)
+    if (brandInput.trim()) {
+      handleAnalyzeClick()
+    }
+  }
+
+  // Utility functions
   const getColorForSentiment = (type) => {
-    if (type === 'positive') return '#22c55e'
-    if (type === 'negative') return '#ef4444'
-    return '#6b7280'
+    const colors = {
+      positive: '#10b981',
+      negative: '#ef4444',
+      neutral: '#6b7280',
+    }
+    return colors[type] || colors.neutral
   }
 
   const calculateRiskLevel = () => {
-    if (!brandData || !brandData.mentions) return 'low'
+    if (!brandData?.mentions) return 'low'
 
     const negativeMentions = brandData.mentions.filter(
       (m) => m.sentiment === 'negative'
     ).length
     const totalMentions = brandData.mentions.length
-    const negativePercentage = (negativeMentions / totalMentions) * 100
+    const negativePercentage =
+      totalMentions > 0 ? (negativeMentions / totalMentions) * 100 : 0
 
     if (negativePercentage > 30) return 'high'
     if (negativePercentage > 15) return 'medium'
@@ -76,53 +148,51 @@ function App() {
   }
 
   const getColorForRisk = (level) => {
-    if (level === 'high') return '#ef4444'
-    if (level === 'medium') return '#f59e0b'
-    return '#22c55e'
+    const colors = {
+      high: '#ef4444',
+      medium: '#f59e0b',
+      low: '#10b981',
+    }
+    return colors[level] || colors.low
   }
 
   const getRiskIcon = (level) => {
-    if (level === 'high') return '🔴'
-    if (level === 'medium') return '🟡'
-    return '🟢'
+    const icons = {
+      high: '🔴',
+      medium: '🟡',
+      low: '🟢',
+    }
+    return icons[level] || icons.low
   }
 
   const calculateSentimentScore = () => {
-    if (!brandData || !brandData.mentions) return 0
-
+    if (!brandData?.mentions) return 0
     const positiveMentions = brandData.mentions.filter(
       (m) => m.sentiment === 'positive'
     ).length
     const totalMentions = brandData.mentions.length
-
     return totalMentions > 0
       ? Math.round((positiveMentions / totalMentions) * 100)
       : 0
   }
 
   const calculateRiskScore = () => {
-    if (!brandData || !brandData.mentions) return 0
-
+    if (!brandData?.mentions) return 0
     const negativeMentions = brandData.mentions.filter(
       (m) => m.sentiment === 'negative'
     ).length
     const totalMentions = brandData.mentions.length
-    const negativePercentage = (negativeMentions / totalMentions) * 100
-
+    const negativePercentage =
+      totalMentions > 0 ? (negativeMentions / totalMentions) * 100 : 0
     return Math.min(100, Math.round(negativePercentage * 2))
   }
 
-  const getTotalMentions = () => {
-    return brandData?.mentions?.length || 0
-  }
-
-  const getMentions = () => {
-    return brandData?.mentions || []
-  }
-
-  const getBrandName = () => {
-    return brandData?.brand || 'Unknown Brand'
-  }
+  // Derived values
+  const riskLevel = calculateRiskLevel()
+  const sentimentScore = calculateSentimentScore()
+  const riskScore = calculateRiskScore()
+  const totalMentions = brandData?.mentions?.length || 0
+  const brandName = brandData?.brand || 'Unknown Brand'
 
   if (isLoading) {
     return (
@@ -156,17 +226,19 @@ function App() {
           <h2>Connection Issue</h2>
           <p>Couldn't reach the analysis server.</p>
           <p>Please check your connection and try again.</p>
-          <button onClick={() => setHasError(false)} className="retry-button">
+          <button onClick={handleRetry} className="retry-button">
             Try Again
+          </button>
+          <button
+            onClick={() => setHasError(false)}
+            className="retry-button secondary"
+          >
+            Go Back
           </button>
         </div>
       </div>
     )
   }
-
-  const riskLevel = calculateRiskLevel()
-  const sentimentScore = calculateSentimentScore()
-  const riskScore = calculateRiskScore()
 
   return (
     <div className="app">
@@ -176,114 +248,272 @@ function App() {
       </header>
 
       <section className="search-section">
-        <div className="search-box">
-          <input
-            type="text"
-            placeholder="Try: Nike, Starbucks, Apple..."
-            value={brandInput}
-            onChange={(e) => setBrandInput(e.target.value)}
-            onKeyPress={handleKeyPress}
-            className="brand-input"
-          />
-          <button onClick={handleAnalyzeClick} className="analyze-button">
-            Analyze Brand
-          </button>
+        <div className="search-container">
+          <div className="search-box">
+            <input
+              type="text"
+              placeholder="Try: Nike, Starbucks, Apple, Samsung..."
+              value={brandInput}
+              onChange={(e) => setBrandInput(e.target.value)}
+              onKeyPress={handleKeyPress}
+              className="brand-input"
+              list="search-history"
+            />
+            <datalist id="search-history">
+              {searchHistory.map((brand, index) => (
+                <option key={index} value={brand} />
+              ))}
+            </datalist>
+            <button
+              onClick={handleAnalyzeClick}
+              className="analyze-button"
+              disabled={isLoading}
+            >
+              {isLoading ? 'Analyzing...' : 'Analyze Brand'}
+            </button>
+          </div>
+
+          {searchHistory.length > 0 && (
+            <div className="search-suggestions">
+              <span className="suggestions-label">Recent searches:</span>
+              {searchHistory.map((brand, index) => (
+                <button
+                  key={index}
+                  className="suggestion-chip"
+                  onClick={() => handleBrandSelect(brand)}
+                >
+                  {brand}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </section>
 
       {brandData ? (
         <main className="results-section">
-          {/* Summary cards */}
-          <div className="metrics-grid">
-            <div className="metric-card">
-              <h3>Total Mentions</h3>
-              <div className="metric-value">{getTotalMentions()}</div>
-              <p>Across all platforms</p>
-            </div>
-
-            <div className="metric-card">
-              <h3>Sentiment Score</h3>
+          {/* AI Status Banner */}
+          {aiStatus && (
+            <div className="ai-status-banner">
               <div
-                className="metric-value"
-                style={{ color: getColorForSentiment('positive') }}
+                className={`ai-status ${
+                  aiStatus.ai_available ? 'active' : 'fallback'
+                }`}
               >
-                {sentimentScore}%
+                <span className="ai-icon">
+                  {aiStatus.ai_available ? '🧠' : '⚡'}
+                </span>
+                <span className="ai-text">
+                  {aiStatus.ai_available
+                    ? 'Powered by Real AI Analysis'
+                    : 'Enhanced Keyword Analysis'}
+                </span>
+                <span className="ai-confidence">
+                  {brandData?.summary?.ai_confidence_avg &&
+                    `Avg Confidence: ${brandData.summary.ai_confidence_avg}%`}
+                </span>
               </div>
-              <p>Positive mentions</p>
             </div>
+          )}
 
-            <div className="metric-card">
-              <h3>Risk Level</h3>
-              <div
-                className="metric-value"
-                style={{ color: getColorForRisk(riskLevel) }}
-              >
-                {getRiskIcon(riskLevel)} {riskLevel}
-              </div>
-              <p>Current brand health</p>
-            </div>
-
-            <div className="metric-card">
-              <h3>Risk Score</h3>
-              <div className="metric-value">{riskScore}/100</div>
-              <p>Lower is better</p>
-            </div>
+          {/* Navigation Tabs */}
+          <div className="results-tabs">
+            <button
+              className={`tab-button ${
+                activeTab === 'overview' ? 'active' : ''
+              }`}
+              onClick={() => setActiveTab('overview')}
+            >
+              📊 Overview
+            </button>
+            <button
+              className={`tab-button ${
+                activeTab === 'mentions' ? 'active' : ''
+              }`}
+              onClick={() => setActiveTab('mentions')}
+            >
+              💬 Mentions ({totalMentions})
+            </button>
+            <button
+              className={`tab-button ${
+                activeTab === 'competitors' ? 'active' : ''
+              }`}
+              onClick={() => setActiveTab('competitors')}
+            >
+              ⚔️ Competitors
+            </button>
           </div>
 
-          {/* Crisis Alerts */}
-          {riskLevel === 'high' && (
-            <div className="warning-banner">
-              <span className="warning-icon">🚨</span>
-              <div className="warning-text">
-                <strong>High Alert:</strong> We're detecting significant
-                negative sentiment. You might want to address this quickly.
-              </div>
-            </div>
-          )}
-
-          {riskLevel === 'medium' && (
-            <div className="warning-banner medium">
-              <span className="warning-icon">⚠️</span>
-              <div className="warning-text">
-                <strong>Medium Alert:</strong> Some negative sentiment detected.
-                Keep an eye on this.
-              </div>
-            </div>
-          )}
-
-          {/* Competitor Comparison */}
-          {competitorData && (
-            <section className="competitor-section">
-              <h2>How {getBrandName()} Stacks Up Against Competitors</h2>
-
-              <div className="competitor-grid">
-                <div className="competitor-card main-brand">
-                  <h3>{competitorData.main_brand.name}</h3>
-                  <div className="competitor-metric">
-                    <span className="metric-label">Mentions:</span>
-                    <span className="metric-value">
-                      {competitorData.main_brand.mentions}
-                    </span>
-                  </div>
-                  <div className="competitor-metric">
-                    <span className="metric-label">Sentiment:</span>
-                    <span
-                      className="metric-value"
-                      style={{ color: getColorForSentiment('positive') }}
-                    >
-                      {competitorData.main_brand.sentiment_score}%
-                    </span>
-                  </div>
-                  <div className="performance-badge">Your Brand</div>
+          {/* Tab Content */}
+          {activeTab === 'overview' && (
+            <div className="tab-content">
+              {/* Summary cards */}
+              <div className="metrics-grid">
+                <div className="metric-card">
+                  <div className="metric-icon">📊</div>
+                  <h3>Total Mentions</h3>
+                  <div className="metric-value">{totalMentions}</div>
+                  <p>Across all platforms</p>
                 </div>
 
-                {competitorData.competitors.map((competitor, index) => (
-                  <div key={index} className="competitor-card">
-                    <h3>{competitor.name}</h3>
+                <div className="metric-card">
+                  <div className="metric-icon">😊</div>
+                  <h3>Sentiment Score</h3>
+                  <div
+                    className="metric-value"
+                    style={{ color: getColorForSentiment('positive') }}
+                  >
+                    {sentimentScore}%
+                  </div>
+                  <p>Positive mentions</p>
+                </div>
+
+                <div className="metric-card">
+                  <div className="metric-icon">⚠️</div>
+                  <h3>Risk Level</h3>
+                  <div
+                    className="metric-value"
+                    style={{ color: getColorForRisk(riskLevel) }}
+                  >
+                    {getRiskIcon(riskLevel)} {riskLevel.toUpperCase()}
+                  </div>
+                  <p>Current brand health</p>
+                </div>
+
+                <div className="metric-card">
+                  <div className="metric-icon">📈</div>
+                  <h3>Risk Score</h3>
+                  <div className="metric-value">{riskScore}/100</div>
+                  <p>Lower is better</p>
+                </div>
+              </div>
+
+              {/* Crisis Alerts */}
+              {riskLevel === 'high' && (
+                <div className="warning-banner">
+                  <span className="warning-icon">🚨</span>
+                  <div className="warning-text">
+                    <strong>High Alert:</strong> We're detecting significant
+                    negative sentiment. Immediate attention recommended.
+                  </div>
+                </div>
+              )}
+
+              {riskLevel === 'medium' && (
+                <div className="warning-banner medium">
+                  <span className="warning-icon">⚠️</span>
+                  <div className="warning-text">
+                    <strong>Medium Alert:</strong> Elevated negative sentiment
+                    detected. Monitor closely.
+                  </div>
+                </div>
+              )}
+
+              {/* Quick Stats */}
+              <div className="quick-stats">
+                <h3>Quick Stats for {brandName}</h3>
+                <div className="stats-grid">
+                  <div className="stat-item">
+                    <span className="stat-label">Positive Mentions</span>
+                    <span className="stat-value">
+                      {brandData.summary.positive_mentions}
+                    </span>
+                  </div>
+                  <div className="stat-item">
+                    <span className="stat-label">Negative Mentions</span>
+                    <span className="stat-value">
+                      {brandData.summary.negative_mentions}
+                    </span>
+                  </div>
+                  <div className="stat-item">
+                    <span className="stat-label">AI Confidence</span>
+                    <span className="stat-value">
+                      {brandData.summary.ai_confidence_avg}%
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'mentions' && (
+            <div className="tab-content">
+              <section className="mentions-section">
+                <h2>What People Are Saying About {brandName}</h2>
+
+                <div className="mentions-list">
+                  {brandData.mentions.map((mention) => (
+                    <div key={mention.id} className="mention-item">
+                      <div className="mention-header">
+                        <span className="platform">
+                          {mention.platform === 'Twitter' && '🐦 Twitter'}
+                          {mention.platform === 'Instagram' && '📸 Instagram'}
+                          {mention.platform === 'Reddit' && '👥 Reddit'}
+                          {mention.platform === 'News' && '📰 News'}
+                          {mention.platform === 'Forum' && '💬 Forum'}
+                          {mention.platform === 'Blog' && '📝 Blog'}
+                          {mention.platform || '🌐 Social'}
+                        </span>
+
+                        <span
+                          className="sentiment-tag"
+                          style={{
+                            backgroundColor: getColorForSentiment(
+                              mention.sentiment
+                            ),
+                            color: 'white',
+                          }}
+                        >
+                          {mention.sentiment || 'neutral'}
+                        </span>
+
+                        {mention.confidence && (
+                          <span className="confidence-badge">
+                            {mention.confidence}% conf
+                          </span>
+                        )}
+                      </div>
+
+                      <p className="mention-content">
+                        {mention.text || 'No content available'}
+                      </p>
+
+                      <div className="mention-footer">
+                        <span className="user">
+                          👤 {mention.username || 'anonymous'}
+                          {mention.verified && ' ✓'}
+                        </span>
+                        <span className="engagement">
+                          ❤️ {mention.engagement || 0} likes
+                        </span>
+                        <span className="mood">
+                          {mention.emotion === 'anger' && '😠'}
+                          {mention.emotion === 'excitement' && '🎉'}
+                          {mention.emotion === 'joy' && '😊'}
+                          {mention.emotion === 'frustration' && '😤'}
+                          {mention.emotion === 'surprise' && '😲'}
+                          {mention.emotion || '😐'} {mention.emotion}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            </div>
+          )}
+
+          {activeTab === 'competitors' && competitorData && (
+            <div className="tab-content">
+              <section className="competitor-section">
+                <h2>How {brandName} Stacks Up Against Competitors</h2>
+
+                <div className="competitor-grid">
+                  <div className="competitor-card main-brand">
+                    <h3>{competitorData.main_brand.name}</h3>
                     <div className="competitor-metric">
                       <span className="metric-label">Mentions:</span>
                       <span className="metric-value">
-                        {competitor.mentions}
+                        {competitorData.main_brand.mentions}
                       </span>
                     </div>
                     <div className="competitor-metric">
@@ -292,76 +522,42 @@ function App() {
                         className="metric-value"
                         style={{ color: getColorForSentiment('positive') }}
                       >
-                        {competitor.sentiment_score}%
+                        {competitorData.main_brand.sentiment_score}%
                       </span>
                     </div>
-                    <div className="trend-indicator">
-                      {competitor.sentiment_score >
-                      competitorData.main_brand.sentiment_score
-                        ? '📈'
-                        : '📉'}
+                    <div className="performance-badge">Your Brand</div>
+                  </div>
+
+                  {competitorData.competitors.map((competitor, index) => (
+                    <div key={index} className="competitor-card">
+                      <h3>{competitor.name}</h3>
+                      <div className="competitor-metric">
+                        <span className="metric-label">Mentions:</span>
+                        <span className="metric-value">
+                          {competitor.mentions}
+                        </span>
+                      </div>
+                      <div className="competitor-metric">
+                        <span className="metric-label">Sentiment:</span>
+                        <span
+                          className="metric-value"
+                          style={{ color: getColorForSentiment('positive') }}
+                        >
+                          {competitor.sentiment_score}%
+                        </span>
+                      </div>
+                      <div className="trend-indicator">
+                        {competitor.sentiment_score >
+                        competitorData.main_brand.sentiment_score
+                          ? '📈'
+                          : '📉'}
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {/* Mentions list */}
-          <section className="mentions-section">
-            <h2>What People Are Saying About {getBrandName()}</h2>
-
-            <div className="mentions-list">
-              {getMentions().map((mention) => (
-                <div key={mention.id} className="mention-item">
-                  <div className="mention-header">
-                    <span className="platform">
-                      {mention.platform === 'Twitter' && '🐦'}
-                      {mention.platform === 'Instagram' && '📸'}
-                      {mention.platform === 'Reddit' && '👥'}
-                      {mention.platform === 'News' && '📰'}
-                      {mention.platform === 'Forum' && '💬'}
-                      {mention.platform === 'Blog' && '📝'}
-                      {mention.platform || 'Social'}
-                    </span>
-
-                    <span
-                      className="sentiment-tag"
-                      style={{
-                        backgroundColor: getColorForSentiment(
-                          mention.sentiment
-                        ),
-                        color: 'white',
-                      }}
-                    >
-                      {mention.sentiment || 'neutral'}
-                    </span>
-                  </div>
-
-                  <p className="mention-content">
-                    {mention.text || 'No content available'}
-                  </p>
-
-                  <div className="mention-footer">
-                    <span className="user">
-                      👤 {mention.username || 'anonymous'}
-                    </span>
-                    <span className="engagement">
-                      ❤️ {mention.engagement || 0} likes
-                    </span>
-                    <span className="mood">
-                      {mention.emotion === 'anger' && '😠'}
-                      {mention.emotion === 'excitement' && '🎉'}
-                      {mention.emotion === 'joy' && '😊'}
-                      {mention.emotion === 'frustration' && '😤'}
-                      {mention.emotion === 'surprise' && '😲'}
-                      {mention.emotion || '😐'}
-                    </span>
-                  </div>
+                  ))}
                 </div>
-              ))}
+              </section>
             </div>
-          </section>
+          )}
         </main>
       ) : (
         <section className="features-section">
