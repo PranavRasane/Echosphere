@@ -8,6 +8,10 @@ from functools import lru_cache
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Optimize for Render free tier
+os.environ['TRANSFORMERS_CACHE'] = '/tmp/transformers_cache'
+os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:128'
+
 class AIService:
     def __init__(self):
         self.sentiment_analyzer = None
@@ -16,37 +20,32 @@ class AIService:
         self.setup_ai_models()
     
     def setup_ai_models(self):
-        """Try to setup AI models with better error handling and performance"""
+        """Try to setup AI models with Render optimizations"""
         start_time = time.time()
         
         try:
             logger.info("🔄 Attempting to load Hugging Face model...")
             
-            # Check if we're in production (Render) and adjust settings
-            is_production = os.environ.get('RENDER', False) or os.environ.get('FLASK_ENV') == 'production'
+            # Check if we're in production (Render)
+            is_render = os.environ.get('RENDER', False)
             
-            from transformers import pipeline, AutoModelForSequenceClassification, AutoTokenizer
+            from transformers import pipeline
             
-            model_name = "distilbert-base-uncased-finetuned-sst-2-english"
-            
-            if is_production:
-                logger.info("🚀 Production mode: Loading optimized model...")
-                # Production-optimized loading
-                self.sentiment_analyzer = pipeline(
-                    "sentiment-analysis",
-                    model=model_name,
-                    device=-1,  # CPU
-                    torch_dtype="auto",
-                    truncation=True,
-                    max_length=512
-                )
+            if is_render:
+                logger.info("🚀 Render environment - using lightweight model")
+                # Use a much smaller, faster model for Render
+                model_name = "cardiffnlp/twitter-roberta-base-sentiment-latest"
             else:
-                # Development mode - faster loading
-                self.sentiment_analyzer = pipeline(
-                    "sentiment-analysis",
-                    model=model_name,
-                    device=-1
-                )
+                # Use your preferred model for local development
+                model_name = "distilbert-base-uncased-finetuned-sst-2-english"
+            
+            self.sentiment_analyzer = pipeline(
+                "sentiment-analysis",
+                model=model_name,
+                device=-1,  # CPU only
+                max_length=512,
+                truncation=True
+            )
             
             self.use_huggingface = True
             self.model_load_time = time.time() - start_time
@@ -65,10 +64,9 @@ class AIService:
         self.sentiment_analyzer = None
         self.use_huggingface = False
     
-    @lru_cache(maxsize=1000)
     def analyze_sentiment_ai(self, text):
         """
-        Analyze sentiment using available methods with caching for performance
+        Analyze sentiment using available methods
         Returns: (sentiment, emotion, confidence)
         """
         if not text or len(text.strip()) < 2:
@@ -81,7 +79,7 @@ class AIService:
             return self.analyze_sentiment_enhanced(text)
     
     def analyze_with_transformers(self, text):
-        """Use Hugging Face transformers for sentiment analysis with better error handling"""
+        """Use Hugging Face transformers for sentiment analysis"""
         try:
             clean_text = self.clean_text(text)
             if len(clean_text) < 3:
@@ -94,7 +92,10 @@ class AIService:
             best_result = results[0]
             
             # Map transformer output to our sentiment system
-            sentiment = 'positive' if best_result['label'] == 'POSITIVE' else 'negative'
+            sentiment = 'positive' if best_result['label'] in ['POSITIVE', 'LABEL_2'] else 'negative'
+            if best_result['label'] in ['NEUTRAL', 'LABEL_1']:
+                sentiment = 'neutral'
+                
             confidence = round(best_result['score'] * 100)
             
             # Enhanced emotion detection based on text content
@@ -259,8 +260,7 @@ class AIService:
             'ai_available': self.use_huggingface,
             'model_loaded': self.sentiment_analyzer is not None,
             'model_load_time': self.model_load_time,
-            'service_type': 'huggingface' if self.use_huggingface else 'enhanced_keyword',
-            'cache_size': self.analyze_sentiment_ai.cache_info() if hasattr(self.analyze_sentiment_ai, 'cache_info') else 'N/A'
+            'service_type': 'huggingface' if self.use_huggingface else 'enhanced_keyword'
         }
 
 # Global AI service instance
