@@ -16,7 +16,8 @@ app = Flask(__name__)
 # Enhanced CORS configuration
 CORS(app, 
      origins=[
-         "http://localhost:3000", 
+         "http://localhost:3000",
+         "http://localhost:3001",  
          "https://echosphere.netlify.app",
          "https://your-frontend.netlify.app"
      ],
