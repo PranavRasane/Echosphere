@@ -4,10 +4,12 @@ import random
 from datetime import datetime, timedelta
 import logging
 import os
+import time
+from functools import wraps
 from ai_services import ai_service
 
 # Setup logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__, static_folder='../frontend/build', static_url_path='/')
@@ -15,6 +17,38 @@ CORS(app)
 
 print("🧠 Echosphere AI-Powered Backend Server Starting...")
 print(f"✅ AI Service Available: {ai_service.is_ai_available()}")
+
+# Rate limiting storage (in production, use Redis)
+request_times = {}
+
+def rate_limit(max_requests=100, window_seconds=60):
+    """Simple rate limiting decorator"""
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            client_ip = request.remote_addr
+            now = time.time()
+            
+            # Initialize or clean old entries for this IP
+            if client_ip not in request_times:
+                request_times[client_ip] = []
+            
+            # Remove requests outside the current window
+            request_times[client_ip] = [req_time for req_time in request_times[client_ip] 
+                                      if now - req_time < window_seconds]
+            
+            # Check if over limit
+            if len(request_times[client_ip]) >= max_requests:
+                return jsonify({
+                    "error": "Rate limit exceeded", 
+                    "message": f"Maximum {max_requests} requests per {window_seconds} seconds"
+                }), 429
+            
+            # Add current request
+            request_times[client_ip].append(now)
+            return f(*args, **kwargs)
+        return decorated_function
+    return decorator
 
 class BrandAIAnalyzer:
     def __init__(self):
@@ -24,7 +58,9 @@ class BrandAIAnalyzer:
             'retail': ['amazon', 'flipkart', 'myntra', 'ajio', 'nykaa'],
             'beverage': ['starbucks', 'coca', 'pepsi', 'redbull', 'monster'],
             'automotive': ['tesla', 'toyota', 'ford', 'honda', 'bmw'],
-            'fashion': ['zara', 'hm', 'forever21', 'uniqlo', 'levis']
+            'fashion': ['zara', 'hm', 'forever21', 'uniqlo', 'levis'],
+            'food': ['mcdonalds', 'kfc', 'subway', 'dominos', 'pizzahut'],
+            'finance': ['paypal', 'stripe', 'visa', 'mastercard', 'american express']
         }
     
     def predict_competitors(self, brand_name):
@@ -34,17 +70,24 @@ class BrandAIAnalyzer:
         for category, brands in self.brand_categories.items():
             if brand_lower in brands:
                 # Return other brands from same category
-                return [b for b in brands if b != brand_lower][:3]
+                return [b for b in brands if b != brand_lower][:4]
         
-        # AI fallback - generate relevant competitors based on brand name
-        if any(word in brand_lower for word in ['wear', 'fashion', 'clothing', 'apparel']):
-            return ['Zara', 'H&M', 'Forever 21']
-        elif any(word in brand_lower for word in ['tech', 'electronic', 'phone', 'mobile']):
-            return ['Samsung', 'Google', 'OnePlus']
-        elif any(word in brand_lower for word in ['car', 'auto', 'vehicle', 'motor']):
-            return ['Toyota', 'Ford', 'Honda']
-        else:
-            return ['Market Leader', 'Emerging Brand', 'Local Competitor']
+        # Enhanced AI fallback - generate relevant competitors based on brand name patterns
+        brand_patterns = {
+            'wear|fashion|clothing|apparel': ['Zara', 'H&M', 'Forever 21', 'Uniqlo'],
+            'tech|electronic|phone|mobile|computer': ['Samsung', 'Google', 'OnePlus', 'Xiaomi'],
+            'car|auto|vehicle|motor': ['Toyota', 'Ford', 'Honda', 'BMW'],
+            'food|restaurant|burger|pizza': ['McDonalds', 'KFC', 'Subway', 'Dominos'],
+            'bank|finance|payment|money': ['PayPal', 'Stripe', 'Visa', 'Mastercard'],
+            'social|media|network': ['Facebook', 'Instagram', 'Twitter', 'TikTok'],
+            'stream|video|music|entertainment': ['Netflix', 'YouTube', 'Spotify', 'Disney+']
+        }
+        
+        for pattern, competitors in brand_patterns.items():
+            if any(word in brand_lower for word in pattern.split('|')):
+                return competitors
+        
+        return ['Market Leader', 'Emerging Brand', 'Local Competitor', 'Industry Disruptor']
     
     def calculate_ai_risk(self, mentions):
         """Advanced AI risk calculation with real sentiment analysis"""
@@ -52,33 +95,114 @@ class BrandAIAnalyzer:
             return 0, 'low', '🟢'
         
         negative_count = len([m for m in mentions if m['sentiment'] == 'negative'])
-        anger_count = len([m for m in mentions if m['emotion'] == 'anger'])
+        anger_count = len([m for m in mentions if m['emotion'] in ['anger', 'frustration']])
         total_mentions = len(mentions)
         
-        # Enhanced risk algorithm considering sentiment confidence
+        # Enhanced risk algorithm considering multiple factors
         negative_mentions = [m for m in mentions if m['sentiment'] == 'negative']
+        
         if negative_mentions:
             total_confidence = sum(m.get('confidence', 50) for m in negative_mentions)
             avg_confidence = total_confidence / len(negative_mentions)
+            # High confidence negative mentions are more concerning
+            risk_multiplier = 1 + (avg_confidence / 100)
         else:
             avg_confidence = 0
+            risk_multiplier = 1
         
-        risk_score = min(100, (negative_count * 8) + (anger_count * 12) + (avg_confidence * 0.3))
+        # Calculate risk score with multiple factors
+        base_risk = (negative_count * 8) + (anger_count * 12)
+        confidence_risk = avg_confidence * 0.3
+        volume_risk = min(20, total_mentions * 0.1)  # Small penalty for high volume
         
-        # AI pattern detection
+        risk_score = min(100, (base_risk + confidence_risk + volume_risk) * risk_multiplier)
+        
+        # Enhanced pattern detection
         if risk_score > 70:
-            return risk_score, 'high', '🔴'
+            return round(risk_score), 'high', '🔴'
         elif risk_score > 40:
-            return risk_score, 'medium', '🟡'
+            return round(risk_score), 'medium', '🟡'
         else:
-            return risk_score, 'low', '🟢'
+            return round(risk_score), 'low', '🟢'
+
+    def get_industry_actions(self, industry):
+        """Get industry-specific recommended actions"""
+        actions = {
+            "technology": [
+                "Monitor software update feedback closely",
+                "Engage with developer community",
+                "Track competitor feature releases",
+                "Address security concern mentions promptly"
+            ],
+            "fashion": [
+                "Monitor seasonal collection feedback",
+                "Track influencer collaborations",
+                "Address sizing and quality concerns",
+                "Highlight sustainable initiatives"
+            ],
+            "food": [
+                "Monitor food quality mentions",
+                "Track location-specific feedback",
+                "Address service speed concerns",
+                "Highlight new menu items"
+            ],
+            "automotive": [
+                "Monitor safety feature discussions",
+                "Track reliability mentions",
+                "Address customer service experiences",
+                "Highlight innovation in sustainability"
+            ],
+            "general": [
+                "Engage with negative feedback on social media",
+                "Highlight positive customer stories",
+                "Monitor competitor pricing strategies",
+                "Improve response time to customer queries"
+            ]
+        }
+        return actions.get(industry, actions["general"])
+
+    def get_industry_opportunities(self, industry):
+        """Get industry-specific opportunity areas"""
+        opportunities = {
+            "technology": [
+                "User experience improvements",
+                "Feature request analysis",
+                "Integration opportunities",
+                "Performance optimization"
+            ],
+            "fashion": [
+                "Product quality mentions",
+                "Style trend identification",
+                "Sustainability initiatives",
+                "Size inclusivity"
+            ],
+            "food": [
+                "Menu innovation opportunities",
+                "Service quality improvements",
+                "Location expansion potential",
+                "Dietary preference accommodation"
+            ],
+            "automotive": [
+                "Safety feature development",
+                "Fuel efficiency improvements",
+                "Technology integration",
+                "Customer service enhancement"
+            ],
+            "general": [
+                "Product quality mentions",
+                "Customer service experience",
+                "Pricing competitiveness",
+                "Brand perception"
+            ]
+        }
+        return opportunities.get(industry, opportunities["general"])
 
 # Initialize AI analyzer
 brand_analyzer = BrandAIAnalyzer()
 
 def generate_ai_mentions(brand_name, count=20):
     """Generate mentions with REAL AI sentiment analysis"""
-    platforms = ['Twitter', 'Reddit', 'Instagram', 'News', 'Forum', 'Blog']
+    platforms = ['Twitter', 'Reddit', 'Instagram', 'News', 'Forum', 'Blog', 'YouTube', 'TikTok']
     
     mention_templates = [
         f"Just tried {{brand}}'s new product {{context}}",
@@ -88,15 +212,21 @@ def generate_ai_mentions(brand_name, count=20):
         f"Had a {{context}} experience with {{brand}} support",
         f"{{brand}} is trending for {{context}} reasons today",
         f"Compared {{brand}} with competitors - {{context}}",
-        f"{{brand}} needs to improve their service - {{context}}",
+        f"{{brand}} needs to improve their {{context}}",
         f"Love the new {{brand}} collection! {{context}}",
-        f"Disappointed with {{brand}}'s quality {{context}}"
+        f"Disappointed with {{brand}}'s quality {{context}}",
+        f"{{brand}} just announced {{context}}",
+        f"Can't believe what {{brand}} did {{context}}",
+        f"{{brand}} is changing the game {{context}}",
+        f"Not impressed with {{brand}}'s new feature {{context}}"
     ]
     
     contexts = [
         "and it's amazing!", "very disappointing", "mixed feelings", 
         "highly recommended", "would not recommend", "better than expected",
-        "worse than I thought", "exceeded expectations", "failed to deliver"
+        "worse than I thought", "exceeded expectations", "failed to deliver",
+        "absolutely love it!", "needs improvement", "surprisingly good",
+        "not worth the price", "game changing innovation"
     ]
     
     mentions = []
@@ -109,23 +239,28 @@ def generate_ai_mentions(brand_name, count=20):
         # REAL AI SENTIMENT ANALYSIS
         sentiment, emotion, confidence = ai_service.analyze_sentiment_ai(mention_text)
         
+        # Generate more realistic timestamps
+        hours_ago = random.randint(0, 72)  # Up to 3 days
+        minutes_ago = random.randint(0, 59)
+        
         mention = {
             'id': i + 1,
             'text': mention_text,
             'platform': random.choice(platforms),
             'sentiment': sentiment,
             'emotion': emotion,
-            'confidence': confidence,  # AI confidence score
-            'ai_analyzed': ai_service.is_ai_available(),  # Flag for real AI analysis
-            'timestamp': (datetime.now() - timedelta(
-                hours=random.randint(0, 48),
-                minutes=random.randint(0, 59)
-            )).isoformat(),
+            'confidence': confidence,
+            'ai_analyzed': ai_service.is_ai_available(),
+            'timestamp': (datetime.now() - timedelta(hours=hours_ago, minutes=minutes_ago)).isoformat(),
             'username': f"user_{random.randint(1000, 9999)}",
-            'engagement': random.randint(5, 2500),
-            'verified': random.choice([True, False, False, False])
+            'engagement': random.randint(5, 5000),
+            'verified': random.choice([True, False, False, False]),
+            'impact_score': round(random.uniform(0.1, 1.0), 2)  # New field for impact assessment
         }
         mentions.append(mention)
+    
+    # Sort by timestamp (newest first)
+    mentions.sort(key=lambda x: x['timestamp'], reverse=True)
     
     return mentions
 
@@ -141,27 +276,34 @@ def serve_static_files(path):
 # API Routes
 @app.route('/api/health', methods=['GET'])
 def health_check():
-    ai_status = "🧠 AI Active" if ai_service.is_ai_available() else "⚠️ AI Fallback Mode"
+    ai_status = ai_service.get_service_status()
     return jsonify({
-        "status": f"Echosphere AI API is running! {ai_status}",
+        "status": "Echosphere AI API is running!",
         "ai_available": ai_service.is_ai_available(),
+        "ai_service_status": ai_status,
         "timestamp": datetime.now().isoformat(),
-        "environment": os.environ.get('FLASK_ENV', 'development')
+        "environment": os.environ.get('FLASK_ENV', 'development'),
+        "version": "2.0.0"
     })
 
 @app.route('/api/analyze', methods=['POST'])
+@rate_limit(max_requests=50, window_seconds=60)  # 50 requests per minute
 def analyze_brand():
+    start_time = time.time()
     try:
         data = request.get_json()
         if not data:
             return jsonify({"error": "No JSON data provided"}), 400
             
-        brand_name = data.get('brand', 'Unknown Brand')
+        brand_name = data.get('brand', '').strip()
         
-        if not brand_name or brand_name.strip() == '':
+        if not brand_name:
             return jsonify({"error": "Brand name is required"}), 400
         
-        logger.info(f"🧠 AI Analyzing brand: {brand_name}")
+        if len(brand_name) > 100:
+            return jsonify({"error": "Brand name too long"}), 400
+        
+        logger.info(f"🧠 Analyzing brand: {brand_name}")
         
         # Generate mentions with REAL AI analysis
         mentions = generate_ai_mentions(brand_name)
@@ -170,9 +312,14 @@ def analyze_brand():
         total_mentions = len(mentions)
         positive_mentions = len([m for m in mentions if m['sentiment'] == 'positive'])
         negative_mentions = len([m for m in mentions if m['sentiment'] == 'negative'])
+        neutral_mentions = total_mentions - positive_mentions - negative_mentions
         
         # AI risk analysis with real data
         risk_score, risk_level, risk_icon = brand_analyzer.calculate_ai_risk(mentions)
+        
+        # Calculate additional metrics
+        avg_confidence = round(sum(m.get('confidence', 50) for m in mentions) / len(mentions), 1) if mentions else 0
+        sentiment_score = round((positive_mentions / total_mentions) * 100, 1) if total_mentions > 0 else 0
         
         response = {
             'brand': brand_name,
@@ -181,58 +328,74 @@ def analyze_brand():
             'summary': {
                 'positive_mentions': positive_mentions,
                 'negative_mentions': negative_mentions,
-                'sentiment_score': round((positive_mentions / total_mentions) * 100, 1) if total_mentions > 0 else 0,
+                'neutral_mentions': neutral_mentions,
+                'sentiment_score': sentiment_score,
                 'risk_score': risk_score,
                 'risk_level': risk_level,
                 'risk_icon': risk_icon,
                 'ai_analysis': ai_service.is_ai_available(),
-                'ai_confidence_avg': round(sum(m.get('confidence', 50) for m in mentions) / len(mentions), 1) if mentions else 0,
-                'analysis_timestamp': datetime.now().isoformat()
+                'ai_confidence_avg': avg_confidence,
+                'analysis_timestamp': datetime.now().isoformat(),
+                'processing_time': round(time.time() - start_time, 2)
             }
         }
         
-        logger.info(f"✅ AI Analysis complete: {response['summary']['sentiment_score']}% positive, {risk_level} risk")
+        logger.info(f"✅ Analysis complete: {sentiment_score}% positive, {risk_level} risk, {total_mentions} mentions")
         return jsonify(response)
     
     except Exception as e:
-        logger.error(f"❌ AI Analysis error: {e}")
+        logger.error(f"❌ Analysis error: {e}")
         return jsonify({
             "error": "Internal server error during analysis",
             "ai_available": ai_service.is_ai_available(),
-            "message": str(e)
+            "message": str(e) if os.environ.get('FLASK_ENV') == 'development' else "Please try again later"
         }), 500
 
 @app.route('/api/competitors', methods=['POST'])
+@rate_limit(max_requests=50, window_seconds=60)
 def competitor_analysis():
     try:
         data = request.get_json()
         if not data:
             return jsonify({"error": "No JSON data provided"}), 400
             
-        main_brand = data.get('brand', 'Your Brand')
+        main_brand = data.get('brand', '').strip()
         
-        if not main_brand or main_brand.strip() == '':
+        if not main_brand:
             return jsonify({"error": "Brand name is required"}), 400
         
         # AI-powered competitor prediction
         competitors = brand_analyzer.predict_competitors(main_brand)
         
+        # Generate more realistic competitor data
+        main_brand_mentions = random.randint(100, 500)
+        main_sentiment = random.randint(65, 85)
+        
         analysis = {
             'main_brand': {
                 'name': main_brand,
-                'mentions': random.randint(50, 200),
-                'sentiment_score': random.randint(60, 90),
-                'ai_categorized': True
+                'mentions': main_brand_mentions,
+                'sentiment_score': main_sentiment,
+                'ai_categorized': True,
+                'market_share': round(random.uniform(15, 45), 1)
             },
             'competitors': []
         }
         
         for competitor in competitors:
+            # Competitors have slightly different metrics
+            comp_mentions = max(10, int(main_brand_mentions * random.uniform(0.3, 0.8)))
+            comp_sentiment = random.randint(
+                max(40, main_sentiment - 15), 
+                min(90, main_sentiment + 5)
+            )
+            
             analysis['competitors'].append({
-                'name': competitor.title(),
-                'mentions': random.randint(30, 150),
-                'sentiment_score': random.randint(50, 85),
-                'trend': random.choice(['rising', 'stable', 'declining'])
+                'name': competitor,
+                'mentions': comp_mentions,
+                'sentiment_score': comp_sentiment,
+                'trend': random.choice(['rising', 'stable', 'declining']),
+                'threat_level': random.choice(['low', 'medium', 'high'])
             })
         
         return jsonify(analysis)
@@ -242,6 +405,7 @@ def competitor_analysis():
         return jsonify({"error": "Internal server error during competitor analysis"}), 500
 
 @app.route('/api/ai-insights', methods=['POST'])
+@rate_limit(max_requests=30, window_seconds=60)
 def ai_insights():
     """Advanced AI insights endpoint"""
     try:
@@ -249,32 +413,44 @@ def ai_insights():
         if not data:
             return jsonify({"error": "No JSON data provided"}), 400
             
-        brand_name = data.get('brand', 'Unknown Brand')
+        brand_name = data.get('brand', '').strip()
         
-        if not brand_name or brand_name.strip() == '':
+        if not brand_name:
             return jsonify({"error": "Brand name is required"}), 400
+        
+        # More sophisticated insights based on brand characteristics
+        brand_lower = brand_name.lower()
+        
+        # Determine industry for relevant insights
+        industry = "general"
+        if any(word in brand_lower for word in ['tech', 'software', 'app', 'digital']):
+            industry = "technology"
+        elif any(word in brand_lower for word in ['fashion', 'clothing', 'wear']):
+            industry = "fashion"
+        elif any(word in brand_lower for word in ['food', 'restaurant', 'cafe']):
+            industry = "food"
+        elif any(word in brand_lower for word in ['car', 'auto', 'vehicle']):
+            industry = "automotive"
         
         insights = {
             'brand': brand_name,
+            'industry': industry,
             'ai_insights': {
-                'market_position': random.choice(['Leader', 'Challenger', 'Niche', 'Emerging']),
-                'growth_trend': random.choice(['Rapid', 'Stable', 'Volatile', 'Declining']),
-                'customer_sentiment_trend': random.choice(['Improving', 'Stable', 'Concerning']),
-                'recommended_actions': [
-                    "Engage with negative feedback on social media",
-                    "Highlight positive customer stories",
-                    "Monitor competitor pricing strategies",
-                    "Improve response time to customer queries"
-                ],
-                'opportunity_areas': [
-                    "Product quality mentions",
-                    "Customer service experience", 
-                    "Pricing competitiveness",
-                    "Brand perception"
-                ]
+                'market_position': random.choice(['Leader', 'Challenger', 'Niche Player', 'Emerging']),
+                'growth_trend': random.choice(['Rapid Growth', 'Stable', 'Volatile', 'Declining']),
+                'customer_sentiment_trend': random.choice(['Improving', 'Stable', 'Concerning', 'Volatile']),
+                'brand_health': random.choice(['Excellent', 'Good', 'Needs Attention', 'At Risk']),
+                'recommended_actions': brand_analyzer.get_industry_actions(industry),
+                'opportunity_areas': brand_analyzer.get_industry_opportunities(industry),
+                'key_metrics': {
+                    'social_engagement': f"{random.randint(50, 95)}%",
+                    'response_rate': f"{random.randint(60, 98)}%",
+                    'customer_satisfaction': f"{random.randint(70, 95)}%"
+                }
             },
-            'confidence_score': round(random.uniform(0.7, 0.95), 2),
-            'ai_analysis': ai_service.is_ai_available()
+            'confidence_score': round(random.uniform(0.75, 0.95), 2),
+            'ai_analysis': ai_service.is_ai_available(),
+            'analysis_timestamp': datetime.now().isoformat()
         }
         
         return jsonify(insights)
@@ -287,11 +463,14 @@ def ai_insights():
 def ai_status():
     """Check AI service status"""
     try:
+        status = ai_service.get_service_status()
         return jsonify({
             'ai_available': ai_service.is_ai_available(),
             'model_loaded': ai_service.sentiment_analyzer is not None,
             'status': 'active' if ai_service.is_ai_available() else 'fallback',
-            'timestamp': datetime.now().isoformat()
+            'detailed_status': status,
+            'timestamp': datetime.now().isoformat(),
+            'server_uptime': round(time.time() - app.start_time, 2) if hasattr(app, 'start_time') else 'N/A'
         })
     except Exception as e:
         logger.error(f"❌ AI status check error: {e}")
@@ -302,10 +481,58 @@ def ai_status():
             'error': str(e)
         }), 500
 
+# New endpoint for batch analysis
+@app.route('/api/batch-analyze', methods=['POST'])
+@rate_limit(max_requests=20, window_seconds=60)
+def batch_analyze():
+    """Analyze multiple brands at once"""
+    try:
+        data = request.get_json()
+        if not data or 'brands' not in data:
+            return jsonify({"error": "Brands array is required"}), 400
+            
+        brands = data.get('brands', [])
+        
+        if not isinstance(brands, list) or len(brands) > 5:
+            return jsonify({"error": "Please provide up to 5 brands"}), 400
+        
+        results = []
+        for brand in brands[:5]:  # Limit to 5 brands
+            if isinstance(brand, str) and brand.strip():
+                # Use existing analysis logic
+                mentions = generate_ai_mentions(brand.strip(), count=10)  # Fewer mentions for batch
+                risk_score, risk_level, risk_icon = brand_analyzer.calculate_ai_risk(mentions)
+                
+                results.append({
+                    'brand': brand.strip(),
+                    'mention_count': len(mentions),
+                    'risk_level': risk_level,
+                    'risk_score': risk_score,
+                    'risk_icon': risk_icon
+                })
+        
+        return jsonify({
+            'batch_id': f"batch_{int(time.time())}",
+            'analyzed_brands': len(results),
+            'results': results,
+            'timestamp': datetime.now().isoformat()
+        })
+    
+    except Exception as e:
+        logger.error(f"❌ Batch analysis error: {e}")
+        return jsonify({"error": "Internal server error during batch analysis"}), 500
+
 # Error handlers
 @app.errorhandler(404)
 def not_found(error):
-    return jsonify({"error": "Endpoint not found"}), 404
+    return jsonify({"error": "Endpoint not found", "path": request.path}), 404
+
+@app.errorhandler(429)
+def ratelimit_handler(error):
+    return jsonify({
+        "error": "Rate limit exceeded",
+        "message": "Too many requests, please try again later"
+    }), 429
 
 @app.errorhandler(500)
 def internal_error(error):
@@ -314,6 +541,9 @@ def internal_error(error):
 @app.errorhandler(405)
 def method_not_allowed(error):
     return jsonify({"error": "Method not allowed"}), 405
+
+# Store startup time for uptime tracking
+app.start_time = time.time()
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
@@ -324,6 +554,8 @@ if __name__ == '__main__':
     print(f"✅ Health Check: http://localhost:{port}/api/health")
     print(f"🔍 AI Status: http://localhost:{port}/api/ai-status")
     print(f"💡 AI Insights: http://localhost:{port}/api/ai-insights")
+    print(f"📊 Batch Analysis: http://localhost:{port}/api/batch-analyze")
     print(f"🐛 Debug Mode: {debug}")
+    print(f"🚀 Version: 2.0.0")
     
     app.run(host='0.0.0.0', port=port, debug=debug)
