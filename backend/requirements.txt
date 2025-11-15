@@ -1,7 +1,9 @@
+# Web Framework
 flask==2.3.3
 flask-cors==4.0.0
 python-dotenv==1.0.0
 gunicorn==21.2.0
-transformers==4.30.2
-numpy==1.24.3
+
+# Basic dependencies with compatible versions
+numpy==1.26.4
 requests==2.31.0
