@@ -18,7 +18,8 @@ CORS(app,
      origins=[
          "http://localhost:3000",
          "http://localhost:3001",
-         "https://genuine-gecko-cf2a34.netlify.app",  
+         "https://genuine-gecko-cf2a34.netlify.app",
+         "https://echosphere.vercel.app",  
          "https://echosphere.netlify.app",
          "https://your-frontend.netlify.app"
      ],
