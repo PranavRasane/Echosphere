@@ -3,12 +3,52 @@ import axios from 'axios'
 import './App.css'
 
 // Use your actual Render URL
-const API_BASE_URL =
-  process.env.REACT_APP_API_URL || 'https://echosphere-803v.onrender.com'
+const API_BASE_URL = 'https://echosphere-803v.onrender.com'
 
-// Configure axios for better performance
-axios.defaults.timeout = 15000
-axios.defaults.headers.common['Content-Type'] = 'application/json'
+// Configure axios for better performance and CORS
+const api = axios.create({
+  baseURL: API_BASE_URL,
+  timeout: 30000,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+})
+
+// Add request interceptor for better error handling
+api.interceptors.request.use(
+  (config) => {
+    console.log(
+      `Making ${config.method?.toUpperCase()} request to: ${config.url}`
+    )
+    return config
+  },
+  (error) => {
+    console.error('Request error:', error)
+    return Promise.reject(error)
+  }
+)
+
+// Add response interceptor for error handling
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    console.error('API Error:', error)
+
+    if (error.code === 'ECONNABORTED') {
+      alert('Request timeout. Please try again.')
+    } else if (error.response?.status === 429) {
+      alert('Too many requests. Please wait a minute.')
+    } else if (error.response?.status >= 500) {
+      alert('Server error. Please try again later.')
+    } else if (error.response?.status === 404) {
+      alert('Service temporarily unavailable. Please try again.')
+    } else {
+      alert('Network error. Please check your connection.')
+    }
+
+    return Promise.reject(error)
+  }
+)
 
 function App() {
   const [brandInput, setBrandInput] = useState('')
@@ -23,8 +63,10 @@ function App() {
   // Check AI status - memoized for performance
   const checkAIStatus = useCallback(async () => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/api/ai-status`)
+      console.log('Checking AI status at:', `${API_BASE_URL}/api/ai-status`)
+      const response = await api.get('/api/ai-status')
       setAiStatus(response.data)
+      console.log('AI Status:', response.data)
     } catch (error) {
       console.warn('AI status check failed:', error)
       setAiStatus({ ai_available: false, status: 'unknown' })
@@ -44,16 +86,23 @@ function App() {
 
     try {
       console.log('🧠 Analyzing brand:', brandInput)
+      console.log('API Base URL:', API_BASE_URL)
+
+      // Test connection first
+      await api.get('/api/health')
 
       // Parallel API calls for better performance
       const [brandResult, competitorResult] = await Promise.all([
-        axios.post(`${API_BASE_URL}/api/analyze`, {
+        api.post('/api/analyze', {
           brand: brandInput.trim(),
         }),
-        axios.post(`${API_BASE_URL}/api/competitors`, {
+        api.post('/api/competitors', {
           brand: brandInput.trim(),
         }),
       ])
+
+      console.log('Brand analysis result:', brandResult.data)
+      console.log('Competitor analysis result:', competitorResult.data)
 
       setBrandData(brandResult.data)
       setCompetitorData(competitorResult.data)
@@ -69,17 +118,6 @@ function App() {
     } catch (error) {
       console.error('❌ Analysis failed:', error)
       setHasError(true)
-
-      // Better error messages
-      if (error.code === 'ECONNABORTED') {
-        alert('Request timeout. The server is taking too long to respond.')
-      } else if (error.response?.status >= 500) {
-        alert('Server error. Please try again later.')
-      } else {
-        alert(
-          'Unable to connect to the analysis service. Please check your connection.'
-        )
-      }
     } finally {
       setIsLoading(false)
     }
@@ -93,6 +131,17 @@ function App() {
     if (savedHistory) {
       setSearchHistory(JSON.parse(savedHistory))
     }
+
+    // Test backend connection on app start
+    const testConnection = async () => {
+      try {
+        const response = await api.get('/api/health')
+        console.log('Backend connection successful:', response.data)
+      } catch (error) {
+        console.error('Backend connection failed:', error)
+      }
+    }
+    testConnection()
   }, [checkAIStatus])
 
   // Save search history to localStorage when it changes
@@ -113,6 +162,8 @@ function App() {
 
   const handleBrandSelect = (brand) => {
     setBrandInput(brand)
+    // Auto-analyze when selecting from history
+    setTimeout(() => handleAnalyzeClick(), 100)
   }
 
   const handleRetry = () => {
@@ -122,12 +173,12 @@ function App() {
     }
   }
 
-  // Utility functions
+  // Utility functions optimized for new design
   const getColorForSentiment = (type) => {
     const colors = {
-      positive: '#10b981',
-      negative: '#ef4444',
-      neutral: '#6b7280',
+      positive: '#10b981', // Success green
+      negative: '#ef4444', // Error red
+      neutral: '#94a3b8', // Muted blue-gray
     }
     return colors[type] || colors.neutral
   }
@@ -146,15 +197,16 @@ function App() {
     if (negativePercentage > 15) return 'medium'
     return 'low'
   }
+  // For Future purpose:
 
-  const getColorForRisk = (level) => {
+  /*const getColorForRisk = (level) => {
     const colors = {
-      high: '#ef4444',
-      medium: '#f59e0b',
-      low: '#10b981',
+      high: '#ef4444', // Red
+      medium: '#f59e0b', // Amber
+      low: '#10b981', // Emerald
     }
     return colors[level] || colors.low
-  }
+  } */
 
   const getRiskIcon = (level) => {
     const icons = {
@@ -199,14 +251,18 @@ function App() {
       <div className="app">
         <header className="header">
           <h1>🌐 Echosphere</h1>
-          <p>Listening to your brand's digital heartbeat</p>
+          <p>Intelligent Brand Reputation Monitoring</p>
+          <div className="connection-status">
+            <div className="status-indicator disconnected">●</div>
+            <span>Analyzing in progress...</span>
+          </div>
         </header>
 
         <div className="loading-section">
           <div className="loading-spinner"></div>
-          <p>Scanning the web for {brandInput} mentions...</p>
+          <p>Scanning digital landscape for {brandInput}</p>
           <p className="loading-subtitle">
-            Analyzing competitors and market position
+            Analyzing sentiment patterns and competitor positioning
           </p>
         </div>
       </div>
@@ -218,7 +274,7 @@ function App() {
       <div className="app">
         <header className="header">
           <h1>🌐 Echosphere</h1>
-          <p>Listening to your brand's digital heartbeat</p>
+          <p>Intelligent Brand Reputation Monitoring</p>
         </header>
 
         <div className="error-section">
@@ -244,7 +300,23 @@ function App() {
     <div className="app">
       <header className="header">
         <h1>🌐 Echosphere</h1>
-        <p>Capturing every echo of your brand across the digital sphere</p>
+        <p>Intelligent Brand Reputation Monitoring</p>
+
+        {/* Connection Status */}
+        <div className="connection-status">
+          <div
+            className={`status-indicator ${
+              aiStatus?.ai_available ? 'connected' : 'disconnected'
+            }`}
+          >
+            ●
+          </div>
+          <span>
+            {aiStatus?.ai_available
+              ? 'AI Analysis Active'
+              : 'Enhanced Analysis Mode'}
+          </span>
+        </div>
       </header>
 
       <section className="search-section">
@@ -252,7 +324,7 @@ function App() {
           <div className="search-box">
             <input
               type="text"
-              placeholder="Try: Nike, Starbucks, Apple, Samsung..."
+              placeholder="Enter brand name: Nike, Starbucks, Apple, Samsung..."
               value={brandInput}
               onChange={(e) => setBrandInput(e.target.value)}
               onKeyPress={handleKeyPress}
@@ -305,12 +377,12 @@ function App() {
                 </span>
                 <span className="ai-text">
                   {aiStatus.ai_available
-                    ? 'Powered by Real AI Analysis'
-                    : 'Enhanced Keyword Analysis'}
+                    ? 'Powered by Advanced AI Analysis'
+                    : 'Enhanced Pattern Recognition Analysis'}
                 </span>
                 <span className="ai-confidence">
                   {brandData?.summary?.ai_confidence_avg &&
-                    `Avg Confidence: ${brandData.summary.ai_confidence_avg}%`}
+                    `Confidence: ${brandData.summary.ai_confidence_avg}%`}
                 </span>
               </div>
             </div>
@@ -359,22 +431,14 @@ function App() {
                 <div className="metric-card">
                   <div className="metric-icon">😊</div>
                   <h3>Sentiment Score</h3>
-                  <div
-                    className="metric-value"
-                    style={{ color: getColorForSentiment('positive') }}
-                  >
-                    {sentimentScore}%
-                  </div>
+                  <div className="metric-value">{sentimentScore}%</div>
                   <p>Positive mentions</p>
                 </div>
 
                 <div className="metric-card">
                   <div className="metric-icon">⚠️</div>
                   <h3>Risk Level</h3>
-                  <div
-                    className="metric-value"
-                    style={{ color: getColorForRisk(riskLevel) }}
-                  >
+                  <div className="metric-value">
                     {getRiskIcon(riskLevel)} {riskLevel.toUpperCase()}
                   </div>
                   <p>Current brand health</p>
@@ -393,8 +457,8 @@ function App() {
                 <div className="warning-banner">
                   <span className="warning-icon">🚨</span>
                   <div className="warning-text">
-                    <strong>High Alert:</strong> We're detecting significant
-                    negative sentiment. Immediate attention recommended.
+                    <strong>High Alert:</strong> Significant negative sentiment
+                    detected. Immediate brand management recommended.
                   </div>
                 </div>
               )}
@@ -404,14 +468,14 @@ function App() {
                   <span className="warning-icon">⚠️</span>
                   <div className="warning-text">
                     <strong>Medium Alert:</strong> Elevated negative sentiment
-                    detected. Monitor closely.
+                    detected. Proactive monitoring advised.
                   </div>
                 </div>
               )}
 
               {/* Quick Stats */}
               <div className="quick-stats">
-                <h3>Quick Stats for {brandName}</h3>
+                <h3>Performance Metrics for {brandName}</h3>
                 <div className="stats-grid">
                   <div className="stat-item">
                     <span className="stat-label">Positive Mentions</span>
@@ -426,7 +490,7 @@ function App() {
                     </span>
                   </div>
                   <div className="stat-item">
-                    <span className="stat-label">AI Confidence</span>
+                    <span className="stat-label">Analysis Confidence</span>
                     <span className="stat-value">
                       {brandData.summary.ai_confidence_avg}%
                     </span>
@@ -439,7 +503,7 @@ function App() {
           {activeTab === 'mentions' && (
             <div className="tab-content">
               <section className="mentions-section">
-                <h2>What People Are Saying About {brandName}</h2>
+                <h2>Brand Conversations About {brandName}</h2>
 
                 <div className="mentions-list">
                   {brandData.mentions.map((mention) => (
@@ -461,7 +525,6 @@ function App() {
                             backgroundColor: getColorForSentiment(
                               mention.sentiment
                             ),
-                            color: 'white',
                           }}
                         >
                           {mention.sentiment || 'neutral'}
@@ -484,7 +547,7 @@ function App() {
                           {mention.verified && ' ✓'}
                         </span>
                         <span className="engagement">
-                          ❤️ {mention.engagement || 0} likes
+                          ❤️ {mention.engagement || 0}
                         </span>
                         <span className="mood">
                           {mention.emotion === 'anger' && '😠'}
@@ -505,55 +568,137 @@ function App() {
           {activeTab === 'competitors' && competitorData && (
             <div className="tab-content">
               <section className="competitor-section">
-                <h2>How {brandName} Stacks Up Against Competitors</h2>
+                <h2>Competitive Landscape: {brandName}</h2>
+                <p className="section-subtitle">
+                  Market position analysis compared to key competitors
+                </p>
 
-                <div className="competitor-grid">
-                  <div className="competitor-card main-brand">
-                    <h3>{competitorData.main_brand.name}</h3>
-                    <div className="competitor-metric">
-                      <span className="metric-label">Mentions:</span>
-                      <span className="metric-value">
-                        {competitorData.main_brand.mentions}
-                      </span>
+                <div className="competitor-comparison">
+                  {/* Main Brand - Featured Card */}
+                  <div className="competitor-featured">
+                    <div className="featured-card main-brand">
+                      <div className="brand-header">
+                        <h3>{competitorData.main_brand.name}</h3>
+                        <div className="primary-badge">Your Brand</div>
+                      </div>
+                      <div className="metrics-grid">
+                        <div className="metric-item">
+                          <div className="metric-icon">📊</div>
+                          <div className="metric-info">
+                            <span className="metric-value">
+                              {competitorData.main_brand.mentions}
+                            </span>
+                            <span className="metric-label">Mentions</span>
+                          </div>
+                        </div>
+                        <div className="metric-item">
+                          <div className="metric-icon">😊</div>
+                          <div className="metric-info">
+                            <span className="metric-value">
+                              {competitorData.main_brand.sentiment_score}%
+                            </span>
+                            <span className="metric-label">Sentiment</span>
+                          </div>
+                        </div>
+                        <div className="metric-item">
+                          <div className="metric-icon">🏆</div>
+                          <div className="metric-info">
+                            <span className="metric-value">
+                              {competitorData.main_brand.market_share || '25'}%
+                            </span>
+                            <span className="metric-label">Market Share</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="performance-summary">
+                        <div className="summary-text">
+                          {competitorData.main_brand.sentiment_score > 75
+                            ? 'Strong'
+                            : competitorData.main_brand.sentiment_score > 50
+                            ? 'Stable'
+                            : 'Needs Attention'}
+                        </div>
+                      </div>
                     </div>
-                    <div className="competitor-metric">
-                      <span className="metric-label">Sentiment:</span>
-                      <span
-                        className="metric-value"
-                        style={{ color: getColorForSentiment('positive') }}
-                      >
-                        {competitorData.main_brand.sentiment_score}%
-                      </span>
-                    </div>
-                    <div className="performance-badge">Your Brand</div>
                   </div>
 
-                  {competitorData.competitors.map((competitor, index) => (
-                    <div key={index} className="competitor-card">
-                      <h3>{competitor.name}</h3>
-                      <div className="competitor-metric">
-                        <span className="metric-label">Mentions:</span>
-                        <span className="metric-value">
-                          {competitor.mentions}
-                        </span>
-                      </div>
-                      <div className="competitor-metric">
-                        <span className="metric-label">Sentiment:</span>
-                        <span
-                          className="metric-value"
-                          style={{ color: getColorForSentiment('positive') }}
-                        >
-                          {competitor.sentiment_score}%
-                        </span>
-                      </div>
-                      <div className="trend-indicator">
-                        {competitor.sentiment_score >
-                        competitorData.main_brand.sentiment_score
-                          ? '📈'
-                          : '📉'}
-                      </div>
+                  {/* Competitors List */}
+                  <div className="competitors-list">
+                    <h4 className="competitors-title">Key Competitors</h4>
+                    <div className="competitors-grid">
+                      {competitorData.competitors.map((competitor, index) => {
+                        const isBetter =
+                          competitor.sentiment_score >
+                          competitorData.main_brand.sentiment_score
+                        const sentimentDiff =
+                          competitor.sentiment_score -
+                          competitorData.main_brand.sentiment_score
+
+                        return (
+                          <div key={index} className="competitor-card">
+                            <div className="card-header">
+                              <h4>{competitor.name}</h4>
+                              <div
+                                className={`trend-badge ${
+                                  isBetter ? 'negative' : 'positive'
+                                }`}
+                              >
+                                {isBetter ? '📈 Threat' : '📉 Behind'}
+                              </div>
+                            </div>
+
+                            <div className="competitor-metrics">
+                              <div className="metric-row">
+                                <span className="metric-name">Mentions</span>
+                                <span className="metric-value">
+                                  {competitor.mentions}
+                                </span>
+                              </div>
+                              <div className="metric-row">
+                                <span className="metric-name">Sentiment</span>
+                                <span className="metric-value">
+                                  {competitor.sentiment_score}%
+                                </span>
+                              </div>
+                              <div className="metric-row">
+                                <span className="metric-name">
+                                  Vs. Your Brand
+                                </span>
+                                <span
+                                  className={`difference ${
+                                    isBetter ? 'negative' : 'positive'
+                                  }`}
+                                >
+                                  {isBetter ? '+' : ''}
+                                  {sentimentDiff}%
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="threat-level">
+                              <div className="threat-label">
+                                Threat Level:
+                                <span
+                                  className={`level ${
+                                    competitor.threat_level || 'medium'
+                                  }`}
+                                >
+                                  {competitor.threat_level || 'medium'}
+                                </span>
+                              </div>
+                              <div className="trend-status">
+                                {competitor.trend === 'rising'
+                                  ? '↗ Rising'
+                                  : competitor.trend === 'declining'
+                                  ? '↘ Declining'
+                                  : '→ Stable'}
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })}
                     </div>
-                  ))}
+                  </div>
                 </div>
               </section>
             </div>
@@ -561,36 +706,38 @@ function App() {
         </main>
       ) : (
         <section className="features-section">
-          <h2>See Your Brand Through Our Eyes</h2>
+          <h2>Intelligent Brand Monitoring Platform</h2>
           <p className="features-intro">
-            Echosphere helps you understand what the internet is saying about
-            your brand. We scan social media, news sites, and forums to give you
-            the full picture.
+            Echosphere provides comprehensive brand intelligence by analyzing
+            digital conversations across social media, news platforms, and
+            forums to deliver actionable insights.
           </p>
 
           <div className="features-grid">
             <div className="feature">
               <div className="feature-icon">🔍</div>
-              <h3>Find Every Mention</h3>
-              <p>We search everywhere people talk about brands</p>
+              <h3>Comprehensive Monitoring</h3>
+              <p>
+                Track brand mentions across all digital channels and platforms
+              </p>
             </div>
 
             <div className="feature">
               <div className="feature-icon">😊</div>
-              <h3>Understand Feelings</h3>
-              <p>See if people are happy, angry, or just talking</p>
+              <h3>Sentiment Intelligence</h3>
+              <p>Advanced analysis of customer emotions and brand perception</p>
             </div>
 
             <div className="feature">
               <div className="feature-icon">🚨</div>
-              <h3>Spot Problems Early</h3>
-              <p>Get alerts before small issues become big ones</p>
+              <h3>Risk Detection</h3>
+              <p>Early warning system for potential brand reputation issues</p>
             </div>
 
             <div className="feature">
               <div className="feature-icon">⚔️</div>
-              <h3>Beat Competitors</h3>
-              <p>See how you stack up against the competition</p>
+              <h3>Competitive Insights</h3>
+              <p>Benchmark performance against industry competitors</p>
             </div>
           </div>
         </section>
@@ -598,7 +745,10 @@ function App() {
 
       {/* Footer */}
       <footer className="app-footer">
-        <p>Built with ❤️ for RapidQuest Hackathon | Echosphere 2025</p>
+        <p>
+          Echosphere v2.0 | Intelligent Brand Analytics Platform | Built for
+          RapidQuest Hackathon 2025
+        </p>
       </footer>
     </div>
   )

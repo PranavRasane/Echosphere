@@ -4,40 +4,204 @@
     <meta charset="utf-8" />
     <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#000000" />
+
+    <!-- Sophisticated Theme Color -->
+    <meta name="theme-color" content="#0f172a" />
+    <meta name="msapplication-TileColor" content="#0f172a" />
+
+    <!-- Professional Meta Description -->
     <meta
       name="description"
-      content="Web site created using create-react-app"
+      content="Echosphere - AI-powered brand intelligence platform. Monitor brand sentiment, track competitors, and protect your reputation with real-time digital insights."
     />
-    <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
-    <!--
-      manifest.json provides metadata used when your web app is installed on a
-      user's mobile device or desktop. See https://developers.google.com/web/fundamentals/web-app-manifest/
-    -->
+
+    <!-- SEO Keywords -->
+    <meta
+      name="keywords"
+      content="brand monitoring, sentiment analysis, reputation management, competitor analysis, AI analytics, social media monitoring"
+    />
+
+    <!-- Open Graph Meta Tags for Social Sharing -->
+    <meta property="og:type" content="website" />
+    <meta
+      property="og:title"
+      content="Echosphere - Intelligent Brand Analytics"
+    />
+    <meta
+      property="og:description"
+      content="AI-powered brand intelligence platform for sentiment analysis and competitor monitoring"
+    />
+    <meta property="og:image" content="%PUBLIC_URL%/social-preview.png" />
+    <meta property="og:url" content="https://echosphere.app" />
+
+    <!-- Twitter Card Meta Tags -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta
+      name="twitter:title"
+      content="Echosphere - Brand Intelligence Platform"
+    />
+    <meta
+      name="twitter:description"
+      content="Monitor brand sentiment and track competitors with AI-powered analytics"
+    />
+    <meta name="twitter:image" content="%PUBLIC_URL%/social-preview.png" />
+
+    <!-- Favicon and App Icons -->
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="32x32"
+      href="%PUBLIC_URL%/favicon-32x32.png"
+    />
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="16x16"
+      href="%PUBLIC_URL%/favicon-16x16.png"
+    />
+    <link rel="apple-touch-icon" href="%PUBLIC_URL%/apple-touch-icon.png" />
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
-    <!--
-      Notice the use of %PUBLIC_URL% in the tags above.
-      It will be replaced with the URL of the `public` folder during the build.
-      Only files inside the `public` folder can be referenced from the HTML.
 
-      Unlike "/favicon.ico" or "favicon.ico", "%PUBLIC_URL%/favicon.ico" will
-      work correctly both with client-side routing and a non-root public URL.
-      Learn how to configure a non-root public URL by running `npm run build`.
-    -->
-    <title>React App</title>
+    <!-- Preconnect to External Domains for Performance -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+
+    <!-- Google Fonts - Inter for Professional Typography -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- Professional Title -->
+    <title>Echosphere - AI-Powered Brand Intelligence Platform</title>
+
+    <!-- Structured Data for SEO -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "Echosphere",
+        "description": "AI-powered brand intelligence platform for sentiment analysis and competitor monitoring",
+        "url": "https://echosphere.app",
+        "applicationCategory": "BusinessApplication",
+        "operatingSystem": "Web Browser",
+        "permissions": "browser",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        }
+      }
+    </script>
+
+    <!-- Performance Optimization -->
+    <style>
+      /* Critical CSS for initial load */
+      body {
+        margin: 0;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI',
+          sans-serif;
+        background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+        color: #f8fafc;
+        overflow-x: hidden;
+      }
+
+      /* Loading animation for better perceived performance */
+      #root {
+        opacity: 0;
+        animation: fadeIn 0.8s ease-out 0.2s forwards;
+      }
+
+      @keyframes fadeIn {
+        to {
+          opacity: 1;
+        }
+      }
+
+      /* Simple loading indicator */
+      .app-loading {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 9999;
+      }
+
+      .loading-spinner {
+        width: 50px;
+        height: 50px;
+        border: 3px solid rgba(255, 255, 255, 0.1);
+        border-top: 3px solid #0ea5e9;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin-bottom: 1rem;
+      }
+
+      .loading-text {
+        color: #cbd5e1;
+        font-size: 1.1rem;
+        font-weight: 500;
+      }
+    </style>
   </head>
+
   <body>
-    <noscript>You need to enable JavaScript to run this app.</noscript>
+    <!-- Enhanced Loading State -->
+    <div id="loading" class="app-loading">
+      <div class="loading-spinner"></div>
+      <div class="loading-text">Loading Echosphere...</div>
+    </div>
+
+    <noscript>
+      <div
+        style="
+          text-align: center;
+          padding: 2rem;
+          background: #0f172a;
+          color: #f8fafc;
+          font-family: 'Inter', sans-serif;
+        "
+      >
+        <h1>🌐 Echosphere</h1>
+        <p><strong>JavaScript is required to run this application.</strong></p>
+        <p>
+          Please enable JavaScript in your browser settings to access
+          Echosphere's brand intelligence platform.
+        </p>
+      </div>
+    </noscript>
+
     <div id="root"></div>
+
+    <!-- Remove loading screen once app is loaded -->
+    <script>
+      window.addEventListener('load', function () {
+        setTimeout(function () {
+          const loadingElement = document.getElementById('loading')
+          if (loadingElement) {
+            loadingElement.style.opacity = '0'
+            loadingElement.style.transition = 'opacity 0.5s ease'
+            setTimeout(() => loadingElement.remove(), 500)
+          }
+        }, 1000)
+      })
+    </script>
+
+    <!-- Analytics Script (Optional - for future use) -->
     <!--
-      This HTML file is a template.
-      If you open it directly in the browser, you will see an empty page.
-
-      You can add webfonts, meta tags, or analytics to this file.
-      The build step will place the bundled scripts into the <body> tag.
-
-      To begin the development, run `npm start` or `yarn start`.
-      To create a production bundle, use `npm run build` or `yarn build`.
+    <script async src="https://www.googletagmanager.com/gtag/js?id=GA_MEASUREMENT_ID"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'GA_MEASUREMENT_ID');
+    </script>
     -->
   </body>
 </html>
